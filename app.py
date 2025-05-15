@@ -6,124 +6,103 @@ from io import BytesIO
 st.set_page_config(page_title="Générateur de fichier UET", layout="wide")
 st.title("📄 Générateur de fichier UET")
 
-# 1. Upload des fichiers nécessaires
-st.sidebar.header("1. Charger les fichiers Excel")
+# Définir les chemins
+base_dir = "data"
+incident_path = os.path.join(base_dir, "Liste codes incidents EE actifs.xlsx")
+element_path = os.path.join(base_dir, "ELEM_elements.xlsx")
+corres_path = os.path.join(base_dir, "BD LISTE LOCAS_UET.xlsx")
+template_path = os.path.join(base_dir, "template.xlsx")
+localisation_folder = os.path.join(base_dir, "localisations")
 
-uploaded_incidents = st.sidebar.file_uploader("📘 Codes incidents (ex: incidents.xlsx)", type=["xlsx"])
-uploaded_elements = st.sidebar.file_uploader("📗 Codes éléments (ex: elements.xlsx)", type=["xlsx"])
-uploaded_corres = st.sidebar.file_uploader("📕 Correspondance LOCA ↔ UET (ex: localisation_uet.xlsx)", type=["xlsx"])
+# Charger les fichiers de base
+df_incidents = pd.read_excel(incident_path)
+df_elements = pd.read_excel(element_path)
+df_corres = pd.read_excel(corres_path)
 
-template_path = "template.xlsx"
-localisation_folder = "data/localisations/"
+# Sélection de l'élément
+st.sidebar.header("Choix de l'élément")
+selected_elem = st.sidebar.selectbox("Choisir un code élément :", df_elements["ELEMENT"].unique())
 
-if all([uploaded_incidents, uploaded_elements, uploaded_corres]):
-    # 2. Lecture des fichiers
-    df_incidents = pd.read_excel(uploaded_incidents)
-    df_elements = pd.read_excel(uploaded_elements)
-    df_corres = pd.read_excel(uploaded_corres)
+if selected_elem:
+    loca_file = os.path.join(localisation_folder, f"{selected_elem}_localisations.xlsx")
+    if os.path.exists(loca_file):
+        df_loca = pd.read_excel(loca_file)
+    else:
+        st.error(f"Fichier de localisations introuvable : {loca_file}")
+        st.stop()
 
-    # 3. Sélection d'un élément
-    st.sidebar.header("2. Choisir un code élément")
-    code_elem = st.sidebar.selectbox("Code élément", df_elements['Code élément'].unique())
+    loca_codes = df_loca["Code localisation"].unique()
+    filtered_corres = df_corres[df_corres["Code localisation"].isin(loca_codes)]
+    filtered_incidents = df_incidents[df_incidents["Code élément"] == selected_elem]
 
-    if code_elem:
-        # 4. Chargement du fichier de localisations spécifique à l’élément
-        loca_file = os.path.join(localisation_folder, f"{code_elem}_localisations.xlsx")
-        if os.path.exists(loca_file):
-            df_loca = pd.read_excel(loca_file)
-        else:
-            st.error(f"Fichier des localisations introuvable pour l’élément : {code_elem}")
-            st.stop()
+    st.subheader(f"📍 Données pour {selected_elem}")
+    st.write("Localisations")
+    st.dataframe(df_loca)
+    st.write("Correspondances LOCA ↔ UET")
+    st.dataframe(filtered_corres)
+    st.write("Incidents")
+    st.dataframe(filtered_incidents)
 
-        # 5. Filtrage
-        loca_codes = df_loca["Code localisation"].unique()
-        filtered_corres = df_corres[df_corres["Code localisation"].isin(loca_codes)]
-        uet_codes = filtered_corres["Code UET"].unique()
-        filtered_incidents = df_incidents[df_incidents['Code élément'] == code_elem]
+    if st.sidebar.button("🔁 Générer le fichier Excel"):
+        template = pd.read_excel(template_path)
+        existing_df = template.copy()
 
-        # 6. Affichage des données
-        st.subheader(f"✅ Résumé des données pour : {code_elem}")
-        st.write("📍 Localisations associées")
-        st.dataframe(df_loca)
+        rows = []
+        to_drop = []
 
-        st.write("📌 Correspondance LOCA ↔ UET")
-        st.dataframe(filtered_corres)
+        exceptions = ["SK01", "RK01", "BK01", "MK01", "CK01", "DENR"]
+        incident_codes = filtered_incidents["Code incident"].dropna().unique()
 
-        st.write("⚠️ Incidents associés")
-        st.dataframe(filtered_incidents)
+        for inc in incident_codes:
+            for loca in loca_codes:
+                uets = filtered_corres[
+                    filtered_corres["Code localisation"].astype(str) == str(loca)
+                ]["Code UET"].unique()
 
-        # 7. Génération du fichier
-        st.sidebar.header("3. Générer le fichier final")
-        if st.sidebar.button("📤 Générer fichier Excel"):
-            try:
-                template = pd.read_excel(template_path)
-                existing_df = template.copy()
+                for uet in uets:
+                    already_exists = (
+                        (existing_df["INCIDENT"].astype(str).str.strip() == str(inc).strip()) &
+                        (existing_df["LOCALISATION"].astype(str).str.strip() == str(loca).strip()) &
+                        (existing_df["UET imputée"] == uet)
+                    ).any()
 
-                rows = []
-                to_drop = []
-
-                exceptions = ["SK01", "RK01", "BK01", "MK01", "CK01", "DENR"]
-                incident_codes = filtered_incidents["Code incident"].dropna().unique()
-
-                for inc in incident_codes:
-                    for loca in loca_codes:
-                        uets = filtered_corres[
-                            filtered_corres["Code localisation"].astype(str) == str(loca)
-                        ]["Code UET"].unique()
-
-                        for uet in uets:
-                            # Vérifie si la ligne existe déjà
-                            already_exists = (
-                                (existing_df["INCIDENT"].astype(str).str.strip() == str(inc).strip()) &
-                                (existing_df["LOCALISATION"].astype(str).str.strip() == str(loca).strip()) &
-                                (existing_df["UET imputée"] == uet)
-                            ).any()
-
-                            sub_no_inc = (
-                                (existing_df["INCIDENT"].astype(str).str.strip() == str(inc).strip()) &
-                                (existing_df["LOCALISATION"].astype(str).str.strip() == str(loca).strip()) &
-                                (existing_df["UET imputée"] != uet)
-                            )
-
-                            if not already_exists:
-                                rows.append({
-                                    "ELEMENT": code_elem,
-                                    "INCIDENT": inc,
-                                    "LOCALISATION": loca,
-                                    "UET imputée": uet
-                                })
-
-                            to_drop.extend(existing_df[sub_no_inc].index.tolist())
-
-                existing_df = existing_df.drop(index=list(set(to_drop)))
-
-                # Ajout des nouvelles lignes
-                new_lines = pd.DataFrame(rows).drop_duplicates()
-                final_df = pd.concat([existing_df, new_lines], axis=0, ignore_index=True)
-
-                # Nettoyage
-                valid_inc = list(incident_codes) + exceptions
-                final_df = final_df[
-                    (final_df["INCIDENT"].isin(valid_inc)) &
-                    (
-                        final_df["LOCALISATION"].notna() |
-                        final_df["INCIDENT"].isin(exceptions)
+                    sub_no_inc = (
+                        (existing_df["INCIDENT"].astype(str).str.strip() == str(inc).strip()) &
+                        (existing_df["LOCALISATION"].astype(str).str.strip() == str(loca).strip()) &
+                        (existing_df["UET imputée"] != uet)
                     )
-                ]
 
-                # Sauvegarde en mémoire
-                output = BytesIO()
-                final_df.to_excel(output, index=False)
-                output.seek(0)
+                    if not already_exists:
+                        rows.append({
+                            "ELEMENT": selected_elem,
+                            "INCIDENT": inc,
+                            "LOCALISATION": loca,
+                            "UET imputée": uet
+                        })
 
-                st.success("✅ Fichier généré avec succès !")
-                st.download_button(
-                    "⬇️ Télécharger le fichier Excel",
-                    data=output,
-                    file_name=f"fichier_{code_elem}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            except Exception as e:
-                st.error(f"Erreur lors de la génération : {e}")
-else:
-    st.info("Veuillez charger tous les fichiers nécessaires pour commencer.")
+                    to_drop.extend(existing_df[sub_no_inc].index.tolist())
+
+        existing_df = existing_df.drop(index=list(set(to_drop)))
+        new_lines = pd.DataFrame(rows).drop_duplicates()
+        final_df = pd.concat([existing_df, new_lines], axis=0, ignore_index=True)
+
+        valid_inc = list(incident_codes) + exceptions
+        final_df = final_df[
+            (final_df["INCIDENT"].isin(valid_inc)) &
+            (
+                final_df["LOCALISATION"].notna() |
+                final_df["INCIDENT"].isin(exceptions)
+            )
+        ]
+
+        output = BytesIO()
+        final_df.to_excel(output, index=False)
+        output.seek(0)
+
+        st.success("✅ Fichier généré avec succès !")
+        st.download_button(
+            label="⬇️ Télécharger le fichier Excel",
+            data=output,
+            file_name=f"{selected_elem}_UET.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
