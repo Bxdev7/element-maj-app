@@ -8,11 +8,11 @@ st.title("📄 Générateur de fichier UET")
 
 # Définir les chemins
 base_dir = "data"
-incident_path = os.path.join(base_dir, "incidents ")
-element_path = os.path.join(base_dir, "elements")
-corres_path = os.path.join(base_dir, "localisation_uet")
+incident_path = os.path.join(base_dir, "incidents.xlsx")
+element_path = os.path.join(base_dir, "elements.xlsx")
+corres_path = os.path.join(base_dir, "localisation_uet.xlsx")
 template_path = os.path.join(base_dir, "template.xlsx")
-localisation_folder = os.path.join(base_dir, "localisations")
+localisation_folder = os.path.join(base_dir, "localisations.xlsx")
 
 # Charger les fichiers de base
 df_incidents = pd.read_excel(incident_path)
