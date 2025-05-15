@@ -31,7 +31,7 @@ if selected_elem:
         st.error(f"Fichier de localisations introuvable : {loca_file}")
         st.stop()
 
-    loca_codes = df_loca["Code localisation"].unique()
+    loca_codes = df_loca["LOCALISATION"].unique()
     filtered_corres = df_corres[df_corres["LOCALISATION"].isin(loca_codes)]
     filtered_incidents = df_incidents
 
@@ -51,12 +51,12 @@ if selected_elem:
         to_drop = []
 
         exceptions = ["SK01", "RK01", "BK01", "MK01", "CK01", "DENR"]
-        incident_codes = filtered_incidents["Code incident"].dropna().unique()
+        incident_codes = filtered_incidents["Code Incident"].dropna().unique()
 
         for inc in incident_codes:
             for loca in loca_codes:
                 uets = filtered_corres[
-                    filtered_corres["Code localisation"].astype(str) == str(loca)
+                    filtered_corres["Code Loca"].astype(str) == str(loca)
                 ]["Code UET"].unique()
 
                 for uet in uets:
