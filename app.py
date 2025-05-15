@@ -32,7 +32,7 @@ if selected_elem:
         st.stop()
 
     loca_codes = df_loca["LOCALISATION"].unique()
-    filtered_corres = df_corres[df_corres["LOCALISATION"].isin(loca_codes)]
+    filtered_corres = df_corres[df_corres["Code Loca"].isin(loca_codes)]
     filtered_incidents = df_incidents
 
     st.subheader(f"📍 Données pour {selected_elem}")
