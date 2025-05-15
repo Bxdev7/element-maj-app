@@ -12,7 +12,7 @@ incident_path = os.path.join(base_dir, "incidents.xlsx")
 element_path = os.path.join(base_dir, "elements.xlsx")
 corres_path = os.path.join(base_dir, "localisation_uet.xlsx")
 template_path = os.path.join(base_dir, "template.xlsx")
-localisation_folder = os.path.join(base_dir, "localisations.xlsx")
+localisation_folder = os.path.join(base_dir, "localisations")
 
 # Charger les fichiers de base
 df_incidents = pd.read_excel(incident_path)
