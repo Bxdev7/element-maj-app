@@ -142,6 +142,8 @@ if selected_elem:
     loca_codes = df_loca["LOCALISATION"].unique()
     filtered_corres = df_corres[df_corres["Code Loca"].isin(loca_codes)]
     filtered_incidents = df_incidents
+    no_loca_incidents = ["SK01", "RK01", "BK01", "MK01", "CK01", "DENR"]
+    incident_list = pd.concat([filtered_incidents, no_loca_incidents], axis=0, ignore_index= True).drop_duplicates()
 
     st.subheader(f"📍 Données pour {selected_elem}")
     st.write("Localisations")
