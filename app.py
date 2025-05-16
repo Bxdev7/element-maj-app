@@ -141,7 +141,7 @@ if selected_elem:
 
     loca_codes = df_loca["LOCALISATION"].unique()
     filtered_corres = df_corres[df_corres["Code Loca"].isin(loca_codes)]
-    filtered_incidents = df_incidents
+    filtered_incidents = df_incidents[:-1]
     no_loca_incidents_codes  = ["SK01", "RK01", "BK01", "MK01", "CK01", "DENR"]
     no_loca_incidents = pd.DataFrame({
                                         "Code Incident": no_loca_incidents_codes,
