@@ -24,7 +24,7 @@ st.sidebar.subheader("🛠️ Gestion des Incidents")
 
 with st.sidebar.expander("Modifier les incidents existants"):
     selected_incident = st.selectbox("Choisir un incident à modifier :", df_incidents["Code Incident"])
-    new_label = st.text_input("Nouveau libellé", value=df_incidents[df_incidents["Code Incident"] == selected_incident]["Libellé Incident"].values[0])
+    new_label = st.text_input("Nouveau libellé", value=df_incidents[df_incidents["Code Incident"] == selected_incident]["Libellé incident"].values[0])
     if st.button("✅ Modifier l’incident"):
         df_incidents.loc[df_incidents["Code Incident"] == selected_incident, "Libellé Incident"] = new_label
         df_incidents.to_excel(incident_path, index=False)
