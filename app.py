@@ -23,6 +23,19 @@ df_corres = pd.read_excel(corres_path)
 st.sidebar.header("Choix de l'élément")
 selected_elem = st.sidebar.selectbox("Choisir un code élément :", df_elements["ELEMENT"].unique())
 
+st.sidebar.markdown("### 📋 Visualiser")
+
+if st.sidebar.button("👁️ Voir les correspondances"):
+    st.session_state["show_corres_table"] = True
+
+if st.session_state.get("show_corres_table"):
+    st.markdown("### 🔍 Table des correspondances Loca - UET")
+    st.dataframe(df_corres, use_container_width=True)
+
+    if st.button("❌ Fermer"):
+        st.session_state["show_corres_table"] = False
+
+
 # ========== GESTION DES INCIDENTS ==========
 st.sidebar.subheader("🛠️ Gestion des Incidents")
 
