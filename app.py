@@ -4,7 +4,7 @@ import os
 from io import BytesIO
 
 st.set_page_config(page_title="Mise à jour d'élément GRET", layout="wide")
-st.title("📄 Générateur de fichier UET")
+st.title("📄 Mise à jour d'élément GRET")
 
 # Définir les chemins
 base_dir = "data"
@@ -55,8 +55,11 @@ with st.sidebar.expander("Supprimer un incident"):
         st.success("Incident supprimé.")
         st.experimental_rerun()
 
+# ... tout ce qui précède ne change pas ...
+
 if selected_elem:
     loca_file = os.path.join(localisation_folder, f"{selected_elem}_localisations.xlsx")
+    current_tab = f""
     if os.path.exists(loca_file):
         df_loca = pd.read_excel(loca_file)
     else:
@@ -75,107 +78,79 @@ if selected_elem:
     st.write("Incidents")
     st.dataframe(filtered_incidents)
 
-    # ========== AJOUT LOCALISATION ==========
-    st.subheader("🏗️ Ajouter une localisation à cet élément")
-    with st.expander("➕ Ajouter une nouvelle localisation"):
-        new_loca_code = st.text_input("Code localisation")
-        new_loca_label = st.text_input("Libellé localisation")
-        new_loca_uet = st.text_input("UET associée")
+    # ========== CONSTRUCTION AUTOMATIQUE ARBORESCENCE ==========
+    template = pd.read_excel(template_path)
+    existing_df = template.copy()
 
-        if st.button("✅ Ajouter la localisation"):
-            if new_loca_code and new_loca_label and new_loca_uet:
-                df_loca = df_loca.append({"LOCALISATION": new_loca_code, "LIBELLE": new_loca_label}, ignore_index=True)
-                df_loca.to_excel(loca_file, index=False)
+    rows = []
+    to_drop = []
 
-                if new_loca_code in df_corres["Code Loca"].values:
-                    df_corres.loc[df_corres["Code Loca"] == new_loca_code, "Libellé Long Loca"] = new_loca_label
-                    df_corres.loc[df_corres["Code Loca"] == new_loca_code, "UET"] = new_loca_uet
-                else:
-                    df_corres = df_corres.append({
-                        "Code Loca": new_loca_code,
-                        "Libellé Long Loca": new_loca_label,
-                        "UET": new_loca_uet
-                    }, ignore_index=True)
-                df_corres.to_excel(corres_path, index=False)
-                st.success("Localisation ajoutée avec succès.")
-                st.experimental_rerun()
-            else:
-                st.warning("Tous les champs doivent être remplis.")
+    exceptions = ["SK01", "RK01", "BK01", "MK01", "CK01", "DENR"]
+    incident_codes = filtered_incidents["Code Incident"].dropna().unique()
 
-    # ========== GÉNÉRATION DU FICHIER ==========
-    if st.sidebar.button("🔁 Générer le fichier Excel"):
-        template = pd.read_excel(template_path)
-        existing_df = template.copy()
+    for inc in incident_codes:
+        if inc in exceptions:
+            rows.append({
+                "ELEMENT": selected_elem,
+                "INCIDENT": inc,
+                "LOCALISATION": "",
+                "UET imputée": "RET"
+            })
+        else:
+            for loca in loca_codes:
+                uets = filtered_corres[
+                    filtered_corres["Code Loca"].astype(str) == str(loca)
+                ]["UET"].unique()
 
-        rows = []
-        to_drop = []
+                for uet in uets:
+                    already_exists = (
+                        (existing_df["INCIDENT"].astype(str).str.strip() == str(inc).strip()) &
+                        (existing_df["LOCALISATION"].astype(str).str.strip() == str(loca).strip()) &
+                        (existing_df["UET imputée"] == uet)
+                    ).any()
 
-        exceptions = ["SK01", "RK01", "BK01", "MK01", "CK01", "DENR"]
-        incident_codes = filtered_incidents["Code Incident"].dropna().unique()
+                    sub_no_inc = (
+                        (existing_df["INCIDENT"].astype(str).str.strip() == str(inc).strip()) &
+                        (existing_df["LOCALISATION"].astype(str).str.strip() == str(loca).strip()) &
+                        (existing_df["UET imputée"] != uet)
+                    )
 
-        for inc in incident_codes:
-            if inc in exceptions:
-                rows.append({
-                    "ELEMENT": selected_elem,
-                    "INCIDENT": inc,
-                    "LOCALISATION": "",
-                    "UET imputée": "RET"
-                })
-            else:
-                for loca in loca_codes:
-                    uets = filtered_corres[
-                        filtered_corres["Code Loca"].astype(str) == str(loca)
-                    ]["UET"].unique()
+                    if not already_exists:
+                        rows.append({
+                            "ELEMENT": selected_elem,
+                            "INCIDENT": inc,
+                            "LOCALISATION": loca,
+                            "UET imputée": uet
+                        })
 
-                    for uet in uets:
-                        already_exists = (
-                            (existing_df["INCIDENT"].astype(str).str.strip() == str(inc).strip()) &
-                            (existing_df["LOCALISATION"].astype(str).str.strip() == str(loca).strip()) &
-                            (existing_df["UET imputée"] == uet)
-                        ).any()
+                    to_drop.extend(existing_df[sub_no_inc].index.tolist())
 
-                        sub_no_inc = (
-                            (existing_df["INCIDENT"].astype(str).str.strip() == str(inc).strip()) &
-                            (existing_df["LOCALISATION"].astype(str).str.strip() == str(loca).strip()) &
-                            (existing_df["UET imputée"] != uet)
-                        )
+    existing_df = existing_df.drop(index=list(set(to_drop)))
+    new_lines = pd.DataFrame(rows).drop_duplicates()
+    current_df = pd.concat([existing_df, new_lines], axis=0, ignore_index=True)
 
-                        if not already_exists:
-                            rows.append({
-                                "ELEMENT": selected_elem,
-                                "INCIDENT": inc,
-                                "LOCALISATION": loca,
-                                "UET imputée": uet
-                            })
-
-                        to_drop.extend(existing_df[sub_no_inc].index.tolist())
-
-        existing_df = existing_df.drop(index=list(set(to_drop)))
-        new_lines = pd.DataFrame(rows).drop_duplicates()
-        final_df = pd.concat([existing_df, new_lines], axis=0, ignore_index=True)
-
-        valid_inc = list(incident_codes) + exceptions
-        final_df = final_df[
-            (final_df["INCIDENT"].isin(valid_inc)) & (
-                final_df["LOCALISATION"].notna() | final_df["INCIDENT"].isin(exceptions)
-            )
-        ]
-
-        output = BytesIO()
-        final_df.to_excel(output, index=False)
-        output.seek(0)
-
-        st.success("✅ Fichier généré avec succès !")
-        st.download_button(
-            label="⬇️ Télécharger le fichier Excel",
-            data=output,
-            file_name=f"{selected_elem}_UET.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    valid_inc = list(incident_codes) + exceptions
+    current_df = current_df[
+        (current_df["INCIDENT"].isin(valid_inc)) & (
+            current_df["LOCALISATION"].notna() | current_df["INCIDENT"].isin(exceptions)
         )
+    ]
 
-        st.markdown("---")
-        st.subheader("🧾 Aperçu du fichier actuel")
-        st.dataframe(final_df)
+    output = BytesIO()
+    current_df.to_excel(output, index=False)
+    output.seek(0)
+
+    st.success("✅ Arborescence mise à jour automatiquement")
+    st.download_button(
+        label="⬇️ Télécharger le fichier Excel généré",
+        data=output,
+        file_name=f"{selected_elem}_UET.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    st.markdown("---")
+    st.subheader("🧾 Aperçu du fichier actuel")
+    st.dataframe(current_df)
 
 else:
     st.warning("Veuillez sélectionner un élément pour modifier les localisations ou générer un fichier.")
