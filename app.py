@@ -57,7 +57,7 @@ if selected_elem:
             for loca in loca_codes:
                 uets = filtered_corres[
                     filtered_corres["Code Loca"].astype(str) == str(loca)
-                ]["Code UET"].unique()
+                ]["UET imputée"].unique()
 
                 for uet in uets:
                     already_exists = (
