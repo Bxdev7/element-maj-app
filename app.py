@@ -8,9 +8,9 @@ st.title("📄 Mise à jour d'élément GRET")
 def rerun():
     try:
         st.experimental_rerun()
-    except AttributeError:
-        # hack pour forcer le rerun sur versions plus anciennes
-        raise st.script_runner.RerunException(st.script_request_queue.RerunData(None))
+    except Exception as e:
+        st.error(f"Erreur lors du rerun : {e}")
+
 
 # ========== FONCTIONS CACHÉES ==========
 @st.cache_data
