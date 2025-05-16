@@ -225,6 +225,22 @@ if selected_elem:
 
                     to_drop.extend(existing_df[sub_no_inc].index.tolist())
 
+    
+    # Incidents à ajouter automatiquement
+    auto_incidents = [
+        {"Code Incident": "SK01", "UET": "RET", "Localisation": ""},
+        {"Code Incident": "RK01", "UET": "RET", "Localisation": ""},
+        {"Code Incident": "BK01", "UET": "RET", "Localisation": ""},
+        {"Code Incident": "MK01", "UET": "RET", "Localisation": ""},
+        {"Code Incident": "CK01", "UET": "RET", "Localisation": ""},
+        {"Code Incident": "DENR", "UET": "DIV", "Localisation": ""}
+    ]
+    
+    df_auto = pd.DataFrame(auto_incidents)
+    
+    # Ajout au dataframe final
+    existing_df = pd.concat([existing_df, df_auto], ignore_index=True)
+
     existing_df = existing_df.drop(index=list(set(to_drop)))
     new_lines = pd.DataFrame(rows).drop_duplicates()
     current_df = pd.concat([existing_df, new_lines], axis=0, ignore_index=True)
