@@ -165,7 +165,7 @@ if selected_elem:
     current_df.to_excel(output, index=False)
     output.seek(0)
 
-    st.success("✅ Arborescence mise à jour automatiquement")
+    
     st.download_button(
         label="⬇️ Télécharger le fichier Excel généré",
         data=output,
@@ -175,6 +175,7 @@ if selected_elem:
 
     st.markdown("---")
     st.subheader("🧾 Aperçu du fichier actuel")
+    st.success("✅ Arborescence mise à jour automatiquement")
     st.dataframe(current_df)
 
 else:
