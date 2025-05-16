@@ -139,18 +139,31 @@ if selected_elem:
         st.error(f"Fichier de localisations introuvable : {loca_file}")
         st.stop()
 
+    # Étape 1 : localisations associées à l’élément
     loca_codes = df_loca["LOCALISATION"].unique()
-    filtered_corres = df_corres[df_corres["Code Loca"].isin(loca_codes)]
-    filtered_incidents = df_incidents
-    no_loca_incidents = pd.DataFrame(data=["SK01", "RK01", "BK01", "MK01", "CK01", "DENR"])
-    incident_list = pd.concat([filtered_incidents, no_loca_incidents], axis=0, ignore_index= True).drop_duplicates()
 
+    # Étape 2 : correspondances LOCA ↔ Incident
+    filtered_corres = df_corres[df_corres["Code Loca"].isin(loca_codes)]
+
+    # Étape 3 : Incidents liés aux localisations (en croisant avec df_incidents)
+    incidents_from_loca = df_incidents[df_incidents["Code Incident"].isin(filtered_corres["Code Incident"])]
+
+    # Étape 4 : Incidents sans localisation (en dur)
+    no_loca_codes = ["SK01", "RK01", "BK01", "MK01", "CK01", "DENR"]
+    no_loca_incidents = df_incidents[df_incidents["Code Incident"].isin(no_loca_codes)]
+
+    # Étape 5 : Fusion propre
+    incident_list = pd.concat([incidents_from_loca, no_loca_incidents], ignore_index=True).drop_duplicates()
+
+    # Affichage
     st.subheader(f"📍 Données pour {selected_elem}")
     st.write("Localisations")
     st.dataframe(df_loca)
+
     st.write("Correspondances LOCA ↔ UET")
     st.dataframe(filtered_corres)
-    st.write("Incidents")
+
+    st.write("Incidents associés")
     st.dataframe(incident_list)
 
      # ========== AJOUT LOCALISATION ==========
