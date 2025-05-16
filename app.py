@@ -55,8 +55,6 @@ with st.sidebar.expander("Supprimer un incident"):
         st.success("Incident supprimé.")
         st.experimental_rerun()
 
-# ... tout ce qui précède ne change pas ...
-
 if selected_elem:
     loca_file = os.path.join(localisation_folder, f"{selected_elem}_localisations.xlsx")
     current_tab = f""
@@ -77,6 +75,33 @@ if selected_elem:
     st.dataframe(filtered_corres)
     st.write("Incidents")
     st.dataframe(filtered_incidents)
+
+     # ========== AJOUT LOCALISATION ==========
+    st.subheader("🏗️ Ajouter une localisation à cet élément")
+    with st.expander("➕ Ajouter une nouvelle localisation"):
+        new_loca_code = st.text_input("Code localisation")
+        new_loca_label = st.text_input("Libellé localisation")
+        new_loca_uet = st.text_input("UET associée")
+
+        if st.button("✅ Ajouter la localisation"):
+            if new_loca_code and new_loca_label and new_loca_uet:
+                df_loca = df_loca.append({"LOCALISATION": new_loca_code, "LIBELLE": new_loca_label}, ignore_index=True)
+                df_loca.to_excel(loca_file, index=False)
+
+                if new_loca_code in df_corres["Code Loca"].values:
+                    df_corres.loc[df_corres["Code Loca"] == new_loca_code, "Libellé Long Loca"] = new_loca_label
+                    df_corres.loc[df_corres["Code Loca"] == new_loca_code, "UET"] = new_loca_uet
+                else:
+                    df_corres = df_corres.append({
+                        "Code Loca": new_loca_code,
+                        "Libellé Long Loca": new_loca_label,
+                        "UET": new_loca_uet
+                    }, ignore_index=True)
+                df_corres.to_excel(corres_path, index=False)
+                st.success("Localisation ajoutée avec succès.")
+                st.experimental_rerun()
+            else:
+                st.warning("Tous les champs doivent être remplis.")
 
     # ========== CONSTRUCTION AUTOMATIQUE ARBORESCENCE ==========
     template = pd.read_excel(template_path)
