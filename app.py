@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import os
-os.system("pip install --upgrade streamlit")
 from io import BytesIO
 
 st.set_page_config(page_title="Mise à jour d'élément GRET", layout="wide")
@@ -147,7 +146,12 @@ with st.sidebar.expander("✏️ Modifier une localisation"):
             df_corres.loc[df_corres["Code Loca"] == new_code, "UET"] = new_uet
             df_corres.to_excel(corres_path, index=False)
             st.success("Localisation modifiée avec succès!")
-            st.experimental_rerun()
+            def rerun():
+                try:
+                    st.experimental_rerun()
+                except AttributeError:
+                    # hack pour forcer le rerun sur versions plus anciennes
+                    raise st.script_runner.RerunException(st.script_request_queue.RerunData(None))
         except Exception as e:
             st.error(f"Erreur: {str(e)}")
 
@@ -163,7 +167,11 @@ with st.sidebar.expander("🗑️ Supprimer une localisation"):
             df_corres = df_corres[df_corres["Code Loca"] != loca_to_delete]
             df_corres.to_excel(corres_path, index=False)
             st.success("Localisation supprimée!")
-            st.experimental_rerun()
+            try:
+                # code suppression
+                rerun()
+            except Exception as e:
+                st.error(f"Erreur lors de la suppression : {str(e)}")
         except Exception as e:
             st.error(f"Erreur: {str(e)}")
 
@@ -178,7 +186,11 @@ with st.sidebar.expander("Modifier les incidents existants"):
         df_incidents.loc[df_incidents["Code Incident"] == selected_incident, "Libellé Incident"] = new_label
         df_incidents.to_excel(incident_path, index=False)
         st.success("Incident modifié avec succès.")
-        st.experimental_rerun()
+        try:
+            # code suppression
+            rerun()
+        except Exception as e:
+            st.error(f"Erreur lors de la suppression : {str(e)}")
 
 with st.sidebar.expander("Ajouter un nouvel incident"):
     new_code = st.text_input("Code Incident à ajouter")
@@ -188,7 +200,11 @@ with st.sidebar.expander("Ajouter un nouvel incident"):
             df_incidents = df_incidents.append({"Code Incident": new_code, "Libellé Incident": new_lib}, ignore_index=True)
             df_incidents.to_excel(incident_path, index=False)
             st.success("Incident ajouté avec succès.")
-            st.experimental_rerun()
+            try:
+                # code suppression
+                rerun()
+            except Exception as e:
+                st.error(f"Erreur lors de la suppression : {str(e)}")
         else:
             st.warning("Merci de remplir les deux champs.")
 
@@ -198,7 +214,11 @@ with st.sidebar.expander("Supprimer un incident"):
         df_incidents = df_incidents[df_incidents["Code Incident"] != incident_to_delete]
         df_incidents.to_excel(incident_path, index=False)
         st.success("Incident supprimé.")
-        st.experimental_rerun()
+        try:
+            # code suppression
+            rerun()
+        except Exception as e:
+            st.error(f"Erreur lors de la suppression : {str(e)}")
 
 
 
@@ -270,7 +290,11 @@ if selected_elem:
                 try:
                     df_loca.to_excel(loca_file, index=False)
                     st.success(f"Localisation {selected_existing} ajoutée avec succès !")
-                    st.experimental_rerun()
+                    try:
+                        # code suppression
+                        rerun()
+                    except Exception as e:
+                        st.error(f"Erreur lors de la suppression : {str(e)}")
                 except Exception as e:
                     st.error(f"Erreur lors de l'ajout : {str(e)}")
         else:
@@ -314,7 +338,11 @@ if selected_elem:
                         df_corres.to_excel(corres_path, index=False)
                         df_loca.to_excel(loca_file, index=False)
                         st.success("Nouvelle localisation créée et ajoutée avec succès !")
-                        st.experimental_rerun()
+                        try:
+                            # code suppression
+                            rerun()
+                        except Exception as e:
+                            st.error(f"Erreur lors de la suppression : {str(e)}")
                     except Exception as e:
                         st.error(f"Erreur lors de la sauvegarde : {str(e)}")
 
@@ -336,7 +364,11 @@ if selected_elem:
             try:
                 df_loca.to_excel(loca_file, index=False)
                 st.success(f"Localisation {loc_to_remove} retirée avec succès !")
-                st.experimental_rerun()
+                try:
+                    # code suppression
+                    rerun()
+                except Exception as e:
+                    st.error(f"Erreur lors de la suppression : {str(e)}")
             except Exception as e:
                 st.error(f"Erreur lors de la suppression : {str(e)}")
     else:
