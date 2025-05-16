@@ -7,9 +7,13 @@ st.set_page_config(page_title="Mise à jour d'élément GRET", layout="wide")
 st.title("📄 Mise à jour d'élément GRET")
 def rerun():
     try:
-        st.experimental_rerun()
-    except Exception as e:
+<<<<<<< HEAD
+        st.rerun()
+    except AttributeError:
+        # hack pour forcer le rerun sur versions plus anciennes
         st.error(f"Erreur lors du rerun : {e}")
+=======
+>>>>>>> 24ab43cc906fd4bcc8ba944c7e34a2dd81a8756c
 
 
 # ========== FONCTIONS CACHÉES ==========
