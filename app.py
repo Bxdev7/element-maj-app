@@ -3,10 +3,28 @@ import pandas as pd
 import os
 from io import BytesIO
 
+# Configuration de la page
 st.set_page_config(page_title="Mise à jour d'élément GRET", layout="wide")
 st.title("📄 Mise à jour d'élément GRET")
 
-# Définir les chemins
+# ========== FONCTIONS CACHÉES ==========
+@st.cache_data
+def load_data(file_path):
+    try:
+        return pd.read_excel(file_path)
+    except Exception as e:
+        st.error(f"Erreur lors du chargement {file_path}: {str(e)}")
+        return pd.DataFrame()
+
+@st.cache_data
+def load_template(file_path):
+    try:
+        return pd.read_excel(file_path)
+    except Exception as e:
+        st.error(f"Erreur lors du chargement du template: {str(e)}")
+        return pd.DataFrame()
+
+# ========== CHARGEMENT DES DONNÉES ==========
 base_dir = "data"
 incident_path = os.path.join(base_dir, "incidents.xlsx")
 element_path = os.path.join(base_dir, "elements.xlsx")
@@ -14,176 +32,133 @@ corres_path = os.path.join(base_dir, "localisation_uet.xlsx")
 template_path = os.path.join(base_dir, "template.xlsx")
 localisation_folder = os.path.join(base_dir, "localisations")
 
-# Charger les fichiers
-df_incidents = pd.read_excel(incident_path)
-df_elements = pd.read_excel(element_path)
-df_corres = pd.read_excel(corres_path)
+# Chargement avec cache
+df_incidents = load_data(incident_path)
+df_elements = load_data(element_path)
+df_corres = load_data(corres_path)
+template = load_template(template_path)
 
-# ========== CHOIX DE L'ÉLÉMENT ==========
-st.sidebar.header("Choix de l'élément")
-selected_elem = st.sidebar.selectbox("Choisir un code élément :", df_elements["ELEMENT"].unique())
+# ========== SIDEBAR - GESTION DES LOCALISATIONS ==========
+st.sidebar.header("📌 Gestion des Localisations")
 
-st.sidebar.markdown("### 📋 Visualiser")
-
-if st.sidebar.button("👁️ Voir les correspondances"):
-    st.session_state["show_corres_table"] = True
-
-if st.session_state.get("show_corres_table"):
-    st.markdown("### 🔍 Table des correspondances Loca - UET")
+with st.sidebar.expander("🔍 Voir toutes les localisations"):
     st.dataframe(df_corres, use_container_width=True)
 
-    if st.button("❌ Fermer"):
-        st.session_state["show_corres_table"] = False
-
-
-# ========== GESTION DES INCIDENTS ==========
-st.sidebar.subheader("🛠️ Gestion des Incidents")
-
-with st.sidebar.expander("Modifier les incidents existants"):
-    selected_incident = st.selectbox("Choisir un incident à modifier :", df_incidents["Code Incident"])
-    new_label = st.text_input("Nouveau libellé", value=df_incidents[df_incidents["Code Incident"] == selected_incident]["Libellé incident"].values[0])
-    if st.button("✅ Modifier l’incident"):
-        df_incidents.loc[df_incidents["Code Incident"] == selected_incident, "Libellé Incident"] = new_label
-        df_incidents.to_excel(incident_path, index=False)
-        st.success("Incident modifié avec succès.")
-        st.experimental_rerun()
-
-with st.sidebar.expander("Ajouter un nouvel incident"):
-    new_code = st.text_input("Code Incident à ajouter")
-    new_lib = st.text_input("Libellé Incident")
-    if st.button("➕ Ajouter l’incident"):
-        if new_code and new_lib:
-            df_incidents = df_incidents.append({"Code Incident": new_code, "Libellé Incident": new_lib}, ignore_index=True)
-            df_incidents.to_excel(incident_path, index=False)
-            st.success("Incident ajouté avec succès.")
-            st.experimental_rerun()
-        else:
-            st.warning("Merci de remplir les deux champs.")
-
-with st.sidebar.expander("Supprimer un incident"):
-    incident_to_delete = st.selectbox("Sélectionner un incident à supprimer :", df_incidents["Code Incident"])
-    if st.button("🗑️ Supprimer l’incident"):
-        df_incidents = df_incidents[df_incidents["Code Incident"] != incident_to_delete]
-        df_incidents.to_excel(incident_path, index=False)
-        st.success("Incident supprimé.")
-        st.experimental_rerun()
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📄 Coller une nouvelle schématèque")
-
-schema_input = st.sidebar.text_area("Colle ici le contenu de la schématèque")
-
-if schema_input:
-    import re
-
-    # Extraction des lignes contenant un code de type "123-3A" ou "XXX-3A"
-    lines = schema_input.splitlines()
-    pattern = r"([A-Z0-9]+)-\w+\s*;\s*(.+?)(?:;|$)"
-    found_localisations = {}
-
-    for line in lines:
-        matches = re.findall(pattern, line)
-        for code, label in matches:
-            if code not in found_localisations:
-                found_localisations[code] = label.strip().upper()
-
-    # Charger localisations existantes dans le fichier de correspondance
-    existing_loca_codes = df_corres["Code Loca"].astype(str).str.strip().unique()
-
-    # Localisations absentes (nouvelles)
-    new_loca_items = {
-        code: label
-        for code, label in found_localisations.items()
-        if code not in existing_loca_codes
-    }
-
-    if new_loca_items:
-        st.markdown("### 🆕 Nouvelles localisations détectées")
-        st.info("🛠️ Tu peux associer chaque localisation à une existante, la modifier ou l’ajouter directement.")
-
-        for i, (code, label) in enumerate(new_loca_items.items()):
-            with st.expander(f"➡️ {code} - {label}"):
-                # Sélection d'une localisation existante
-                options = [f"{c} - {l}" for c, l in zip(df_corres['Code Loca'], df_corres['Libellé Long Loca'])]
-                selected = st.selectbox("Associer à une localisation existante :", options=options, key=f"select_{i}")
-                code_selected, libelle_selected = selected.split(" - ", 1)
-
-                # Champs modifiables
-                new_code = st.text_input("✏️ Modifier le Code Loca :", value=code, key=f"code_{i}")
-                new_libelle = st.text_input("✏️ Modifier le Libellé :", value=label, key=f"libelle_{i}")
-                uet = st.text_input("🔧 UET associé :", key=f"uet_{i}")
-
-                if st.button("✅ Ajouter au fichier de correspondance", key=f"add_{i}"):
-                    new_row = {
-                        "Code Loca": new_code.strip(),
-                        "Libellé Long Loca": new_libelle.strip(),
-                        "UET": uet.strip()
-                    }
-                    df_corres = pd.concat([df_corres, pd.DataFrame([new_row])], ignore_index=True)
-                    st.success(f"Ajouté : {new_row['Code Loca']} - {new_row['Libellé Long Loca']}")
-
-        # Optionnel : bouton de sauvegarde globale
-        if st.button("💾 Sauvegarder le fichier de correspondance"):
+with st.sidebar.expander("✏️ Modifier une localisation"):
+    loca_to_edit = st.selectbox(
+        "Choisir une localisation à modifier",
+        df_corres["Code Loca"].unique()
+    )
+    
+    edit_data = df_corres[df_corres["Code Loca"] == loca_to_edit].iloc[0]
+    new_code = st.text_input("Code", value=edit_data["Code Loca"])
+    new_label = st.text_input("Libellé", value=edit_data["Libellé Long Loca"])
+    new_uet = st.text_input("UET", value=edit_data["UET"])
+    
+    if st.button("💾 Enregistrer les modifications"):
+        try:
+            df_corres.loc[df_corres["Code Loca"] == loca_to_edit, "Code Loca"] = new_code
+            df_corres.loc[df_corres["Code Loca"] == new_code, "Libellé Long Loca"] = new_label
+            df_corres.loc[df_corres["Code Loca"] == new_code, "UET"] = new_uet
             df_corres.to_excel(corres_path, index=False)
-            st.success("📁 Fichier sauvegardé avec succès.")
-    else:
-        st.sidebar.info("✅ Aucune nouvelle localisation détectée.")
+            st.success("Localisation modifiée avec succès!")
+            st.experimental_rerun()
+        except Exception as e:
+            st.error(f"Erreur: {str(e)}")
 
+with st.sidebar.expander("🗑️ Supprimer une localisation"):
+    loca_to_delete = st.selectbox(
+        "Choisir une localisation à supprimer",
+        df_corres["Code Loca"].unique()
+    )
+    
+    if st.button("❌ Confirmer la suppression"):
+        try:
+            df_corres = df_corres[df_corres["Code Loca"] != loca_to_delete]
+            df_corres.to_excel(corres_path, index=False)
+            st.success("Localisation supprimée!")
+            st.experimental_rerun()
+        except Exception as e:
+            st.error(f"Erreur: {str(e)}")
+
+# ========== SECTION PRINCIPALE - AJOUT LOCALISATION ==========
+selected_elem = st.sidebar.selectbox("Choisir un code élément :", df_elements["ELEMENT"].unique())
 
 if selected_elem:
     loca_file = os.path.join(localisation_folder, f"{selected_elem}_localisations.xlsx")
-    current_tab = f""
-    if os.path.exists(loca_file):
-        df_loca = pd.read_excel(loca_file)
-    else:
-        st.error(f"Fichier de localisations introuvable : {loca_file}")
-        st.stop()
+    df_loca = load_data(loca_file) if os.path.exists(loca_file) else pd.DataFrame()
 
-    loca_codes = df_loca["LOCALISATION"].unique()
-    filtered_corres = df_corres[df_corres["Code Loca"].isin(loca_codes)]
-    filtered_incidents = df_incidents[:-1]
-    no_loca_incidents_codes  = ["SK01", "RK01", "BK01", "MK01", "CK01", "DENR"]
-    no_loca_incidents = pd.DataFrame({
-                                        "Code Incident": no_loca_incidents_codes,
-                                        "Libellé incident": [""] * len(no_loca_incidents_codes) 
-                                    })
-
-    incident_list = pd.concat([filtered_incidents, no_loca_incidents], axis=0, ignore_index= True).drop_duplicates(subset=["Code Incident"])
-
-    st.subheader(f"📍 Données pour {selected_elem}")
-    st.write("Localisations")
-    st.dataframe(df_loca)
-    st.write("Correspondances LOCA ↔ UET")
-    st.dataframe(filtered_corres)
-    st.write("Incidents")
-    st.dataframe(incident_list)
-
-     # ========== AJOUT LOCALISATION ==========
-    st.subheader("🏗️ Ajouter une localisation à cet élément")
-    with st.expander("➕ Ajouter une nouvelle localisation"):
-        new_loca_code = st.text_input("Code localisation")
-        new_loca_label = st.text_input("Libellé localisation")
-        new_loca_uet = st.text_input("UET associée")
-
-        if st.button("✅ Ajouter la localisation"):
-            if new_loca_code and new_loca_label and new_loca_uet:
-                df_loca = df_loca.append({"LOCALISATION": new_loca_code, "LIBELLE": new_loca_label}, ignore_index=True)
-                df_loca.to_excel(loca_file, index=False)
-
-                if new_loca_code in df_corres["Code Loca"].values:
-                    df_corres.loc[df_corres["Code Loca"] == new_loca_code, "Libellé Long Loca"] = new_loca_label
-                    df_corres.loc[df_corres["Code Loca"] == new_loca_code, "UET"] = new_loca_uet
-                else:
-                    df_corres = df_corres.append({
-                        "Code Loca": new_loca_code,
-                        "Libellé Long Loca": new_loca_label,
-                        "UET": new_loca_uet
-                    }, ignore_index=True)
-                df_corres.to_excel(corres_path, index=False)
-                st.success("Localisation ajoutée avec succès.")
-                st.experimental_rerun()
+    st.subheader(f"🏗️ Ajout de localisation à {selected_elem}")
+    
+    add_option = st.radio("Type d'ajout :",
+                         ["Ajouter une localisation existante", "Créer une nouvelle localisation"])
+    
+    if add_option == "Ajouter une localisation existante":
+        existing_loca = st.selectbox(
+            "Choisir parmi les localisations existantes",
+            df_corres["Code Loca"].unique()
+        )
+        
+        loca_info = df_corres[df_corres["Code Loca"] == existing_loca].iloc[0]
+        st.info(f"Libellé: {loca_info['Libellé Long Loca']} | UET: {loca_info['UET']}")
+        
+        if st.button(f"➕ Ajouter {existing_loca} à l'élément"):
+            if existing_loca in df_loca["LOCALISATION"].values:
+                st.warning("Cette localisation existe déjà pour cet élément")
             else:
-                st.warning("Tous les champs doivent être remplis.")
+                df_loca = pd.concat([
+                    df_loca,
+                    pd.DataFrame([{
+                        "LOCALISATION": existing_loca,
+                        "LIBELLE": loca_info["Libellé Long Loca"]
+                    }])
+                ], ignore_index=True)
+                try:
+                    df_loca.to_excel(loca_file, index=False)
+                    st.success("Localisation ajoutée!")
+                    st.experimental_rerun()
+                except Exception as e:
+                    st.error(f"Erreur: {str(e)}")
+    
+    else:  # Nouvelle localisation
+        with st.form("new_loca_form"):
+            new_code = st.text_input("Code localisation")
+            new_label = st.text_input("Libellé localisation")
+            new_uet = st.text_input("UET associée")
+            
+            if st.form_submit_button("✅ Créer et ajouter"):
+                if new_code and new_label and new_uet:
+                    # Ajout à la correspondance générale
+                    df_corres = pd.concat([
+                        df_corres,
+                        pd.DataFrame([{
+                            "Code Loca": new_code,
+                            "Libellé Long Loca": new_label,
+                            "UET": new_uet
+                        }])
+                    ], ignore_index=True)
+                    
+                    # Ajout à l'élément spécifique
+                    df_loca = pd.concat([
+                        df_loca,
+                        pd.DataFrame([{
+                            "LOCALISATION": new_code,
+                            "LIBELLE": new_label
+                        }])
+                    ], ignore_index=True)
+                    
+                    try:
+                        df_corres.to_excel(corres_path, index=False)
+                        df_loca.to_excel(loca_file, index=False)
+                        st.success("Localisation créée et ajoutée!")
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Erreur: {str(e)}")
+                else:
+                    st.warning("Tous les champs doivent être remplis")
+
+# ========== RESTE DU CODE EXISTANT ==========
+# [Le reste de votre code actuel peut être conservé ici...]
 
     # ========== CONSTRUCTION AUTOMATIQUE ARBORESCENCE ==========
     template = pd.read_excel(template_path)
