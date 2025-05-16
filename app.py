@@ -23,26 +23,6 @@ df_corres = pd.read_excel(corres_path)
 st.sidebar.header("Choix de l'élément")
 selected_elem = st.sidebar.selectbox("Choisir un code élément :", df_elements["ELEMENT"].unique())
 
-if selected_elem:
-    loca_file = os.path.join(localisation_folder, f"{selected_elem}_localisations.xlsx")
-    if os.path.exists(loca_file):
-        df_loca = pd.read_excel(loca_file)
-    else:
-        st.error(f"Fichier de localisations introuvable : {loca_file}")
-        st.stop()
-
-    loca_codes = df_loca["LOCALISATION"].unique()
-    filtered_corres = df_corres[df_corres["Code Loca"].isin(loca_codes)]
-    filtered_incidents = df_incidents
-
-    st.subheader(f"📍 Données pour {selected_elem}")
-    st.write("Localisations")
-    st.dataframe(df_loca)
-    st.write("Correspondances LOCA ↔ UET")
-    st.dataframe(filtered_corres)
-    st.write("Incidents")
-    st.dataframe(filtered_incidents)
-
 # ========== GESTION DES INCIDENTS ==========
 st.sidebar.subheader("🛠️ Gestion des Incidents")
 
@@ -74,6 +54,26 @@ with st.sidebar.expander("Supprimer un incident"):
         df_incidents.to_excel(incident_path, index=False)
         st.success("Incident supprimé.")
         st.experimental_rerun()
+
+if selected_elem:
+    loca_file = os.path.join(localisation_folder, f"{selected_elem}_localisations.xlsx")
+    if os.path.exists(loca_file):
+        df_loca = pd.read_excel(loca_file)
+    else:
+        st.error(f"Fichier de localisations introuvable : {loca_file}")
+        st.stop()
+
+    loca_codes = df_loca["LOCALISATION"].unique()
+    filtered_corres = df_corres[df_corres["Code Loca"].isin(loca_codes)]
+    filtered_incidents = df_incidents
+
+    st.subheader(f"📍 Données pour {selected_elem}")
+    st.write("Localisations")
+    st.dataframe(df_loca)
+    st.write("Correspondances LOCA ↔ UET")
+    st.dataframe(filtered_corres)
+    st.write("Incidents")
+    st.dataframe(filtered_incidents)
 
     # ========== AJOUT LOCALISATION ==========
     st.subheader("🏗️ Ajouter une localisation à cet élément")
