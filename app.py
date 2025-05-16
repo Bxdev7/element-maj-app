@@ -98,28 +98,36 @@ if schema_input:
     }
 
     if new_loca_items:
-        st.sidebar.markdown("### 🆕 Nouvelles localisations détectées")
+        st.markdown("### 🆕 Nouvelles localisations détectées")
+        st.info("🛠️ Tu peux associer chaque localisation à une existante, la modifier ou l’ajouter directement.")
 
-        added_loca_data = []
-        for code, label in new_loca_items.items():
-            add = st.sidebar.checkbox(f"{code} - {label}", key=code)
-            uet_val = st.sidebar.text_input(f"UET pour {code}", key=f"uet_{code}")
-            if add and uet_val:
-                added_loca_data.append({
-                    "Code Loca": code,
-                    "Libellé Long Loca": label,
-                    "UET": uet_val.strip().upper()
-                })
+        for i, (code, label) in enumerate(new_loca_items.items()):
+            with st.expander(f"➡️ {code} - {label}"):
+                # Sélection d'une localisation existante
+                options = [f"{c} - {l}" for c, l in zip(df_corres['Code Loca'], df_corres['Libellé Long Loca'])]
+                selected = st.selectbox("Associer à une localisation existante :", options=options, key=f"select_{i}")
+                code_selected, libelle_selected = selected.split(" - ", 1)
 
-        if added_loca_data:
-            st.sidebar.success(f"{len(added_loca_data)} localisations prêtes à être ajoutées")
-            if st.sidebar.button("✅ Valider et ajouter au fichier de correspondance"):
-                df_new = pd.DataFrame(added_loca_data)
-                df_corres = pd.concat([df_corres, df_new], ignore_index=True)
-                st.session_state["df_corres_updated"] = df_corres  # Enregistrer dans session pour usage ailleurs
-                st.sidebar.success("Nouvelles localisations ajoutées à la correspondance !")
+                # Champs modifiables
+                new_code = st.text_input("✏️ Modifier le Code Loca :", value=code, key=f"code_{i}")
+                new_libelle = st.text_input("✏️ Modifier le Libellé :", value=label, key=f"libelle_{i}")
+                uet = st.text_input("🔧 UET associé :", key=f"uet_{i}")
+
+                if st.button("✅ Ajouter au fichier de correspondance", key=f"add_{i}"):
+                    new_row = {
+                        "Code Loca": new_code.strip(),
+                        "Libellé Long Loca": new_libelle.strip(),
+                        "UET": uet.strip()
+                    }
+                    df_corres = pd.concat([df_corres, pd.DataFrame([new_row])], ignore_index=True)
+                    st.success(f"Ajouté : {new_row['Code Loca']} - {new_row['Libellé Long Loca']}")
+
+        # Optionnel : bouton de sauvegarde globale
+        if st.button("💾 Sauvegarder le fichier de correspondance"):
+            df_corres.to_excel(corres_path, index=False)
+            st.success("📁 Fichier sauvegardé avec succès.")
     else:
-        st.sidebar.info("Aucune nouvelle localisation détectée.")
+        st.sidebar.info("✅ Aucune nouvelle localisation détectée.")
 
 
 if selected_elem:
