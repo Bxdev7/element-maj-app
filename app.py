@@ -55,6 +55,60 @@ with st.sidebar.expander("Supprimer un incident"):
         st.success("Incident supprimé.")
         st.experimental_rerun()
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("📄 Coller une nouvelle schématèque")
+
+schema_input = st.sidebar.text_area("Colle ici le contenu de la schématèque")
+
+if schema_input:
+    import re
+
+    # Extraction des lignes contenant un code de type "123-3A" ou "XXX-3A"
+    lines = schema_input.splitlines()
+    pattern = r"([A-Z0-9]+)-\w+\s*;\s*(.+?)(?:;|$)"
+    found_localisations = {}
+
+    for line in lines:
+        matches = re.findall(pattern, line)
+        for code, label in matches:
+            if code not in found_localisations:
+                found_localisations[code] = label.strip().upper()
+
+    # Charger localisations existantes dans le fichier de correspondance
+    existing_loca_codes = df_corres["Code Loca"].astype(str).str.strip().unique()
+
+    # Localisations absentes (nouvelles)
+    new_loca_items = {
+        code: label
+        for code, label in found_localisations.items()
+        if code not in existing_loca_codes
+    }
+
+    if new_loca_items:
+        st.sidebar.markdown("### 🆕 Nouvelles localisations détectées")
+
+        added_loca_data = []
+        for code, label in new_loca_items.items():
+            add = st.sidebar.checkbox(f"{code} - {label}", key=code)
+            uet_val = st.sidebar.text_input(f"UET pour {code}", key=f"uet_{code}")
+            if add and uet_val:
+                added_loca_data.append({
+                    "Code Loca": code,
+                    "Libellé Long Loca": label,
+                    "UET": uet_val.strip().upper()
+                })
+
+        if added_loca_data:
+            st.sidebar.success(f"{len(added_loca_data)} localisations prêtes à être ajoutées")
+            if st.sidebar.button("✅ Valider et ajouter au fichier de correspondance"):
+                df_new = pd.DataFrame(added_loca_data)
+                df_corres = pd.concat([df_corres, df_new], ignore_index=True)
+                st.session_state["df_corres_updated"] = df_corres  # Enregistrer dans session pour usage ailleurs
+                st.sidebar.success("Nouvelles localisations ajoutées à la correspondance !")
+    else:
+        st.sidebar.info("Aucune nouvelle localisation détectée.")
+
+
 if selected_elem:
     loca_file = os.path.join(localisation_folder, f"{selected_elem}_localisations.xlsx")
     current_tab = f""
