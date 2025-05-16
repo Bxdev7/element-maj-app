@@ -148,7 +148,7 @@ if selected_elem:
                                         "Libellé incident": [""] * len(no_loca_incidents_codes) 
                                     })
 
-    incident_list = pd.concat([filtered_incidents, no_loca_incidents], axis=0, ignore_index= True).drop_duplicates()
+    incident_list = pd.concat([filtered_incidents, no_loca_incidents], axis=0, ignore_index= True).drop_duplicates(subset=["Code Incident"])
 
     st.subheader(f"📍 Données pour {selected_elem}")
     st.write("Localisations")
