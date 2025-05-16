@@ -129,22 +129,17 @@ if schema_input:
         st.sidebar.info("✅ Aucune nouvelle localisation détectée.")
 
 # ========== GESTION DES LOCALISATIONS (SIDEBAR) ==========
-st.sidebar.subheader("🗺️ Gestion des Localisations")
-
-with st.sidebar.expander("🔍 Voir toutes les localisations"):
-    st.dataframe(df_corres, use_container_width=True)
-
 with st.sidebar.expander("✏️ Modifier une localisation"):
     loca_to_edit = st.selectbox(
         "Choisir une localisation à modifier",
         df_corres["Code Loca"].unique(),
-        key="edit_loca_select"
+        key="edit_loca_select_v2"  # Clé modifiée
     )
     
     edit_data = df_corres[df_corres["Code Loca"] == loca_to_edit].iloc[0]
-    new_code = st.text_input("Code", value=edit_data["Code Loca"], key="edit_loca_code")
-    new_label = st.text_input("Libellé", value=edit_data["Libellé Long Loca"], key="edit_loca_label")
-    new_uet = st.text_input("UET", value=edit_data["UET"], key="edit_loca_uet")
+    new_code = st.text_input("Code", value=edit_data["Code Loca"], key="edit_loca_code_v2")
+    new_label = st.text_input("Libellé", value=edit_data["Libellé Long Loca"], key="edit_loca_label_v2")
+    new_uet = st.text_input("UET", value=edit_data["UET"], key="edit_loca_uet_v2")
     
     if st.button("💾 Enregistrer les modifications", key="edit_loca_btn"):
         try:
@@ -186,41 +181,18 @@ with st.sidebar.expander("🗑️ Supprimer une localisation"):
 # ========== GESTION DES INCIDENTS ==========
 st.sidebar.subheader("🛠️ Gestion des Incidents")
 
-# ========== MODIFICATION DES LOCALISATIONS ==========
-with st.sidebar.expander("✏️ Modifier une localisation"):
-    loca_to_edit = st.selectbox(
-        "Choisir une localisation à modifier",
-        df_corres["Code Loca"].unique(),
-        key="edit_loca_select"
-    )
-    
-    edit_data = df_corres[df_corres["Code Loca"] == loca_to_edit].iloc[0]
-    new_code = st.text_input("Code", value=edit_data["Code Loca"], key="edit_loca_code")
-    new_label = st.text_input("Libellé", value=edit_data["Libellé Long Loca"], key="edit_loca_label")
-    new_uet = st.text_input("UET", value=edit_data["UET"], key="edit_loca_uet")
-    
-    if st.button("💾 Enregistrer les modifications", key="edit_loca_btn"):
+with st.sidebar.expander("Modifier les incidents existants"):
+    selected_incident = st.selectbox("Choisir un incident à modifier :", df_incidents["Code Incident"])
+    new_label = st.text_input("Nouveau libellé", value=df_incidents[df_incidents["Code Incident"] == selected_incident]["Libellé incident"].values[0])
+    if st.button("✅ Modifier l’incident"):
+        df_incidents.loc[df_incidents["Code Incident"] == selected_incident, "Libellé Incident"] = new_label
+        df_incidents.to_excel(incident_path, index=False)
+        st.success("Incident modifié avec succès.")
         try:
-            # Créer une copie du DataFrame avant modification
-            modified_df = df_corres.copy()
-            
-            # Mettre à jour toutes les colonnes en une seule opération
-            mask = modified_df["Code Loca"] == loca_to_edit
-            modified_df.loc[mask, ["Code Loca", "Libellé Long Loca", "UET"]] = [new_code, new_label, new_uet]
-            
-            # Sauvegarder le nouveau DataFrame
-            modified_df.to_excel(corres_path, index=False)
-            
-            # Réinitialiser le cache
-            load_data.clear()  # <-- IMPORTANT: Vider le cache
-            
-            st.success("Modifications sauvegardées avec succès! Rafraîchissement...")
-            time.sleep(1)
-            st.rerun()
-            
+            # code suppression
+            rerun()
         except Exception as e:
-            st.error(f"Erreur lors de la sauvegarde : {str(e)}")
-            st.error("Vérifiez que le fichier n'est pas ouvert dans Excel")
+            st.error(f"Erreur lors de la suppression : {str(e)}")
 
 with st.sidebar.expander("Ajouter un nouvel incident"):
     new_code = st.text_input("Code Incident à ajouter")
