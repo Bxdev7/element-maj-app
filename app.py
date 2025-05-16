@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from io import BytesIO
 
-st.set_page_config(page_title="Générateur de fichier UET", layout="wide")
+st.set_page_config(page_title="Mise à jour d'élément GRET", layout="wide")
 st.title("📄 Générateur de fichier UET")
 
 # Définir les chemins
