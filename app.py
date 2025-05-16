@@ -10,8 +10,8 @@ def rerun():
         st.experimental_rerun()
     except AttributeError:
         # hack pour forcer le rerun sur versions plus anciennes
-        raise st.script_runner.RerunException(st.script_request_queue.RerunData(None)):
-        
+        raise st.script_runner.RerunException(st.script_request_queue.RerunData(None))
+
 # ========== FONCTIONS CACHÉES ==========
 @st.cache_data
 def load_data(file_path):
