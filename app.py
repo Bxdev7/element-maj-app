@@ -10,7 +10,10 @@ st.title("📄 Mise à jour d'élément GRET")
 @st.cache_data
 def load_data(file_path):
     try:
-        return pd.read_excel(file_path)
+        df = pd.read_excel(file_path)
+        if 'Code Loca' in df.columns:
+            df['Code Loca'] = df['Code Loca'].astype(str).str.strip()
+        return df
     except Exception as e:
         st.error(f"Erreur lors du chargement {file_path}: {str(e)}")
         return pd.DataFrame()
