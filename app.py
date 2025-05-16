@@ -228,22 +228,22 @@ if selected_elem:
     
     # Incidents à ajouter automatiquement
     auto_incidents = [
-        {"Code Incident": "SK01", "UET": "RET", "Localisation": ""},
-        {"Code Incident": "RK01", "UET": "RET", "Localisation": ""},
-        {"Code Incident": "BK01", "UET": "RET", "Localisation": ""},
-        {"Code Incident": "MK01", "UET": "RET", "Localisation": ""},
-        {"Code Incident": "CK01", "UET": "RET", "Localisation": ""},
-        {"Code Incident": "DENR", "UET": "DIV", "Localisation": ""}
+        {"ELEMENT":  selected_elem, "INCIDENT": "SK01", "UET imputée": "RET", "LOCALISATION": ""},
+        {"ELEMENT":  selected_elem, "INCIDENT": "RK01", "UET imputée": "RET", "LOCALISATION": ""},
+        {"ELEMENT":  selected_elem, "INCIDENT": "BK01", "UET imputée": "RET", "LOCALISATION": ""},
+        {"ELEMENT":  selected_elem, "INCIDENT": "MK01", "UET imputée": "RET", "LOCALISATION": ""},
+        {"ELEMENT":  selected_elem, "INCIDENT": "CK01", "UET imputée": "RET", "LOCALISATION": ""},
+        {"ELEMENT":  selected_elem, "INCIDENT": "DENR", "UET imputée": "DIV", "LOCALISATION": ""}
     ]
     
     df_auto = pd.DataFrame(auto_incidents)
     
     # Ajout au dataframe final
-    existing_df = pd.concat([existing_df, df_auto], ignore_index=True)
+    #existing_df = pd.concat([existing_df, df_auto], ignore_index=True)
 
     existing_df = existing_df.drop(index=list(set(to_drop)))
     new_lines = pd.DataFrame(rows).drop_duplicates()
-    current_df = pd.concat([existing_df, new_lines], axis=0, ignore_index=True)
+    current_df = pd.concat([existing_df, new_lines, df_auto], axis=0, ignore_index=True)
 
     valid_inc = list(incident_codes) + exceptions
     current_df = current_df[
