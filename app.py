@@ -290,7 +290,7 @@ if selected_elem:
             if st.button("➕ Ajouter cette localisation à l'élément", key="add_existing_loc_btn"):
                 new_row = {
                     "LOCALISATION": loc_info['Code Loca'],
-                    "LIBELLE": loc_info['Libellé Long Loca']
+                    "LABEL": loc_info['Libellé Long Loca']
                 }
                 df_loca = pd.concat([df_loca, pd.DataFrame([new_row])], ignore_index=True)
                 
@@ -336,7 +336,7 @@ if selected_elem:
                     # Ajout à l'élément spécifique
                     new_loca_row = {
                         "LOCALISATION": new_code,
-                        "LIBELLE": new_label
+                        "LABEL": new_label
                     }
                     df_loca = pd.concat([df_loca, pd.DataFrame([new_loca_row])], ignore_index=True)
                     
