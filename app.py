@@ -56,7 +56,7 @@ df_elements = load_data(element_path)
 selected_elem = st.sidebar.selectbox(
     "Choisir un code élément :", 
     df_elements["ELEMENT"].unique(),
-    format_func=lambda x: f"{x} - {df_elements[df_elements['ELEMENT'] == x]['LABEL'].values[0]}"
+    format_func=lambda x: f"{x} - {df_elements[df_elements['ELEMENT'] == x]['INTITULE'].values[0]}"
 )
 st.sidebar.markdown("### 📋 Visualiser")
 
