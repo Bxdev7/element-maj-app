@@ -5,7 +5,13 @@ from io import BytesIO
 
 st.set_page_config(page_title="Mise à jour d'élément GRET", layout="wide")
 st.title("📄 Mise à jour d'élément GRET")
-
+def rerun():
+    try:
+        st.experimental_rerun()
+    except AttributeError:
+        # hack pour forcer le rerun sur versions plus anciennes
+        raise st.script_runner.RerunException(st.script_request_queue.RerunData(None)):
+        
 # ========== FONCTIONS CACHÉES ==========
 @st.cache_data
 def load_data(file_path):
