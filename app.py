@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+os.system("pip install --upgrade streamlit")
 from io import BytesIO
 
 st.set_page_config(page_title="Mise à jour d'élément GRET", layout="wide")
