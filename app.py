@@ -151,7 +151,7 @@ if selected_elem:
     st.write("Correspondances LOCA ↔ UET")
     st.dataframe(filtered_corres)
     st.write("Incidents")
-    st.dataframe(inceident_list)
+    st.dataframe(incident_list)
 
      # ========== AJOUT LOCALISATION ==========
     st.subheader("🏗️ Ajouter une localisation à cet élément")
