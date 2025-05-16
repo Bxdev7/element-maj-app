@@ -129,6 +129,11 @@ if schema_input:
         st.sidebar.info("✅ Aucune nouvelle localisation détectée.")
 
 # ========== GESTION DES LOCALISATIONS (SIDEBAR) ==========
+st.sidebar.subheader("🗺️ Gestion des Localisations")
+
+with st.sidebar.expander("🔍 Voir toutes les localisations"):
+    st.dataframe(df_corres, use_container_width=True)
+    
 with st.sidebar.expander("✏️ Modifier une localisation"):
     loca_to_edit = st.selectbox(
         "Choisir une localisation à modifier",
