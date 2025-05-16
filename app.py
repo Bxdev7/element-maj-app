@@ -163,35 +163,62 @@ if schema_input:
 
     if new_loca_items:
         st.markdown("### 🆕 Nouvelles localisations détectées")
-        st.info("🛠️ Tu peux associer chaque localisation à une existante, la modifier ou l’ajouter directement.")
+        st.info("🛠️ Choisis pour quels éléments tu veux ajouter chacune de ces localisations.")
 
-        for i, (code, label) in enumerate(new_loca_items.items()):
-            with st.expander(f"➡️ {code} - {label}"):
-                # Sélection d'une localisation existante
-                options = [f"{c} - {l}" for c, l in zip(df_corres['Code Loca'], df_corres['Libellé Long Loca'])]
-                selected = st.selectbox("Associer à une localisation existante :", options=options, key=f"select_{i}")
-                code_selected, libelle_selected = selected.split(" - ", 1)
+        # Prépare la liste des éléments
+        all_elements = df_elements["ELEMENT"].tolist()
 
-                # Champs modifiables
-                new_code = st.text_input("✏️ Modifier le Code Loca :", value=code, key=f"code_{i}")
-                new_libelle = st.text_input("✏️ Modifier le Libellé :", value=label, key=f"libelle_{i}")
-                uet = st.text_input("🔧 UET associé :", key=f"uet_{i}")
+        for code, label in new_loca_items.items():
+            with st.expander(f"➡️ {code} – {label}"):
+                # Choix des éléments auxquels rattacher cette loca
+                choix_elems = st.multiselect(
+                    "Ajouter cette localisation aux éléments :", 
+                    all_elements, 
+                    key=f"elems_for_{code}"
+                )
+                uet = st.text_input(f"🔧 UET pour {code}", key=f"uet_{code}")
 
-                if st.button("✅ Ajouter au fichier de correspondance", key=f"add_{i}"):
-                    new_row = {
-                        "Code Loca": new_code.strip(),
-                        "Libellé Long Loca": new_libelle.strip(),
-                        "UET": uet.strip()
-                    }
-                    df_corres = pd.concat([df_corres, pd.DataFrame([new_row])], ignore_index=True)
-                    st.success(f"Ajouté : {new_row['Code Loca']} - {new_row['Libellé Long Loca']}")
+                if st.button(f"✅ Ajouter {code}", key=f"add_code_{code}"):
+                    if not choix_elems:
+                        st.warning("Sélectionne au moins un élément.")
+                    elif not uet.strip():
+                        st.warning("Indique l’UET avant de valider.")
+                    else:
+                        for elem in choix_elems:
+                            # Chemin du fichier <elem>_localisations.xlsx
+                            loca_file = os.path.join(localisation_folder, f"{elem}_localisations.xlsx")
+                            df_loca_elem = pd.read_excel(loca_file)
 
-        # Optionnel : bouton de sauvegarde globale
-        if st.button("💾 Sauvegarder le fichier de correspondance"):
-            df_corres.to_excel(corres_path, index=False)
-            st.success("📁 Fichier sauvegardé avec succès.")
+                            # N’ajoute pas en double
+                            if code in df_loca_elem["LOCALISATION"].astype(str).values:
+                                st.info(f"{code} est déjà dans {elem}.")
+                                continue
+
+                            # Ajout
+                            df_loca_elem = pd.concat([
+                                df_loca_elem,
+                                pd.DataFrame([{"LOCALISATION": code, "LABEL": label}])
+                            ], ignore_index=True)
+                            df_loca_elem.to_excel(loca_file, index=False)
+
+                            # Met à jour aussi la correspondance globale
+                            df_corres.loc[df_corres["Code Loca"] == code, ["Libellé Long Loca", "UET"]] = [label, uet]
+                            if code not in df_corres["Code Loca"].values:
+                                df_corres = pd.concat([df_corres, pd.DataFrame([{
+                                    "Code Loca": code,
+                                    "Libellé Long Loca": label,
+                                    "UET": uet
+                                }])], ignore_index=True)
+                            df_corres.to_excel(corres_path, index=False)
+
+                            st.success(f"✅ {code} ajouté à {elem} avec UET={uet}")
+
+        # Bouton général de refresh si tu veux
+        if st.button("🔄 Recharger les données après ajout"):
+            st.experimental_rerun()
     else:
         st.sidebar.info("✅ Aucune nouvelle localisation détectée.")
+
 
 # ========== GESTION DES LOCALISATIONS (SIDEBAR) ==========
 st.sidebar.subheader("🗺️ Gestion des Localisations")
