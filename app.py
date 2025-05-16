@@ -39,6 +39,7 @@ df_incidents = load_data(incident_path)
 df_elements = load_data(element_path)
 df_corres = load_data(corres_path)
 template = load_template(template_path)
+filtered_incidents = df_incidents[:-1]
 
 # ========== CHOIX DE L'ÉLÉMENT ==========
 st.sidebar.header("Choix de l'élément")
@@ -211,7 +212,7 @@ if selected_elem:
 
     loca_codes = df_loca["LOCALISATION"].unique()
     filtered_corres = df_corres[df_corres["Code Loca"].isin(loca_codes)]
-    filtered_incidents = df_incidents[:-1]
+    # filtered_incidents = df_incidents[:-1]
     no_loca_incidents_codes  = ["SK01", "RK01", "BK01", "MK01", "CK01", "DENR"]
     no_loca_incidents = pd.DataFrame({
                                         "Code Incident": no_loca_incidents_codes,
