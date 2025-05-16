@@ -325,7 +325,7 @@ if selected_elem:
         loc_to_remove = st.selectbox(
             "Sélectionner une localisation à retirer :",
             df_loca["LOCALISATION"].unique(),
-            format_func=lambda x: f"{x} - {df_loca[df_loca['LOCALISATION'] == x]['LIBELLE'].iloc[0]}",
+            format_func=lambda x: f"{x} - {df_loca[df_loca['LOCALISATION'] == x]['LABEL'].iloc[0]}",
             key="remove_loc_select"
         )
         
