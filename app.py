@@ -163,61 +163,65 @@ if schema_input:
 
     if new_loca_items:
         st.markdown("### 🆕 Nouvelles localisations détectées")
-        st.info("🛠️ Choisis pour quels éléments tu veux ajouter chacune de ces localisations.")
+        st.info("🛠️ Pour chaque localisation, tu peux la renommer, ajuster son code, choisir ses éléments et indiquer l’UET.")
 
-        # Prépare la liste des éléments
         all_elements = df_elements["ELEMENT"].tolist()
 
-        for code, label in new_loca_items.items():
-            with st.expander(f"➡️ {code} – {label}"):
-                # Choix des éléments auxquels rattacher cette loca
+        for orig_code, orig_label in new_loca_items.items():
+            with st.expander(f"➡️ {orig_code} – {orig_label}"):
+                # 1) Permettre la modification du code et du label
+                new_code = st.text_input("✏️ Code localisation :", value=orig_code, key=f"code_mod_{orig_code}")
+                new_label = st.text_input("✏️ Libellé localisation :", value=orig_label, key=f"label_mod_{orig_code}")
+
+                # 2) Choix des éléments
                 choix_elems = st.multiselect(
                     "Ajouter cette localisation aux éléments :", 
                     all_elements, 
-                    key=f"elems_for_{code}"
+                    key=f"elems_for_{orig_code}"
                 )
-                uet = st.text_input(f"🔧 UET pour {code}", key=f"uet_{code}")
 
-                if st.button(f"✅ Ajouter {code}", key=f"add_code_{code}"):
-                    if not choix_elems:
+                # 3) Saisie de l’UET
+                uet = st.text_input("🔧 UET associé :", key=f"uet_mod_{orig_code}")
+
+                # 4) Bouton d’ajout
+                if st.button(f"✅ Valider {orig_code}", key=f"valider_{orig_code}"):
+                    if not new_code.strip() or not new_label.strip() or not uet.strip():
+                        st.warning("Code, libellé et UET sont obligatoires.")
+                    elif not choix_elems:
                         st.warning("Sélectionne au moins un élément.")
-                    elif not uet.strip():
-                        st.warning("Indique l’UET avant de valider.")
                     else:
                         for elem in choix_elems:
-                            # Chemin du fichier <elem>_localisations.xlsx
                             loca_file = os.path.join(localisation_folder, f"{elem}_localisations.xlsx")
                             df_loca_elem = pd.read_excel(loca_file)
 
-                            # N’ajoute pas en double
-                            if code in df_loca_elem["LOCALISATION"].astype(str).values:
-                                st.info(f"{code} est déjà dans {elem}.")
-                                continue
+                            # Vérifier doublon
+                            if new_code in df_loca_elem["LOCALISATION"].astype(str).values:
+                                st.info(f"{new_code} existe déjà pour {elem}.")
+                            else:
+                                df_loca_elem = pd.concat([
+                                    df_loca_elem,
+                                    pd.DataFrame([{"LOCALISATION": new_code, "LABEL": new_label}])
+                                ], ignore_index=True)
+                                df_loca_elem.to_excel(loca_file, index=False)
+                                st.success(f"{new_code} ajouté à {elem}.")
 
-                            # Ajout
-                            df_loca_elem = pd.concat([
-                                df_loca_elem,
-                                pd.DataFrame([{"LOCALISATION": code, "LABEL": label}])
-                            ], ignore_index=True)
-                            df_loca_elem.to_excel(loca_file, index=False)
+                        # Mettre à jour la correspondance globale
+                        if new_code in df_corres["Code Loca"].values:
+                            df_corres.loc[df_corres["Code Loca"] == new_code, ["Libellé Long Loca", "UET"]] = [new_label, uet]
+                        else:
+                            df_corres = pd.concat([df_corres, pd.DataFrame([{
+                                "Code Loca": new_code,
+                                "Libellé Long Loca": new_label,
+                                "UET": uet
+                            }])], ignore_index=True)
+                        df_corres.to_excel(corres_path, index=False)
 
-                            # Met à jour aussi la correspondance globale
-                            df_corres.loc[df_corres["Code Loca"] == code, ["Libellé Long Loca", "UET"]] = [label, uet]
-                            if code not in df_corres["Code Loca"].values:
-                                df_corres = pd.concat([df_corres, pd.DataFrame([{
-                                    "Code Loca": code,
-                                    "Libellé Long Loca": label,
-                                    "UET": uet
-                                }])], ignore_index=True)
-                            df_corres.to_excel(corres_path, index=False)
-
-                            st.success(f"✅ {code} ajouté à {elem} avec UET={uet}")
-
-        # Bouton général de refresh si tu veux
+        # bouton facultatif pour rafraîchir l’app
         if st.button("🔄 Recharger les données après ajout"):
             st.experimental_rerun()
     else:
         st.sidebar.info("✅ Aucune nouvelle localisation détectée.")
+
 
 
 # ========== GESTION DES LOCALISATIONS (SIDEBAR) ==========
