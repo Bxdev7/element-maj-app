@@ -50,11 +50,17 @@ filtered_incidents = df_incidents[:-1]
 
 # ========== CHOIX DE L'ÉLÉMENT ==========
 st.sidebar.header("Choix de l'élément")
-selected_elem = st.sidebar.selectbox("Choisir un code élément :", df_elements["ELEMENT"].unique())
+# Rafraîchir les données après modification
+df_elements = load_data(element_path)
 
+selected_elem = st.sidebar.selectbox(
+    "Choisir un code élément :", 
+    df_elements["ELEMENT"].unique(),
+    format_func=lambda x: f"{x} - {df_elements[df_elements['ELEMENT'] == x]['LIBELLE'].values[0]}"
+)
 st.sidebar.markdown("### 📋 Visualiser")
 
-if st.sidebar.button("👁️ Voir les correspondances"):
+if st.sidebar.button("👁️ Voir les correspondances localisation - UET"):
     st.session_state["show_corres_table"] = True
 
 if st.session_state.get("show_corres_table"):
@@ -67,6 +73,65 @@ if st.session_state.get("show_corres_table"):
 
 
 # ========== Sidebar ==========
+
+# ========== GESTION DES ÉLÉMENTS ==========
+st.sidebar.subheader("🧩 Gestion des Éléments")
+
+with st.sidebar.expander("📋 Voir tous les éléments existants"):
+    st.dataframe(df_elements, use_container_width=True)
+
+with st.sidebar.expander("➕ Créer un nouvel élément"):
+    new_elem_code = st.text_input("Code élément*", help="Doit être unique")
+    new_elem_label = st.text_input("Libellé élément*")
+    
+    if st.button("✅ Créer l'élément"):
+        if new_elem_code and new_elem_label:
+            if new_elem_code in df_elements["ELEMENT"].values:
+                st.error("Ce code élément existe déjà !")
+            else:
+                # Création du fichier de localisations
+                new_loca_file = os.path.join(localisation_folder, f"{new_elem_code}_localisations.xlsx")
+                pd.DataFrame(columns=["LOCALISATION", "LABEL"]).to_excel(new_loca_file, index=False)
+                
+                # Ajout à la liste des éléments
+                df_elements = pd.concat([
+                    df_elements,
+                    pd.DataFrame([{"ELEMENT": new_elem_code, "LIBELLE": new_elem_label}])
+                ], ignore_index=True)
+                
+                try:
+                    df_elements.to_excel(element_path, index=False)
+                    st.success("Élément créé avec succès !")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erreur : {str(e)}")
+        else:
+            st.warning("Les champs marqués d'une * sont obligatoires")
+
+with st.sidebar.expander("🗑️ Supprimer un élément"):
+    elem_to_delete = st.selectbox(
+        "Choisir un élément à supprimer :",
+        df_elements["ELEMENT"].unique(),
+        key="delete_elem_select"
+    )
+    
+    if st.button("❌ Confirmer la suppression", key="delete_elem_btn"):
+        try:
+            # Suppression de l'élément
+            df_elements = df_elements[df_elements["ELEMENT"] != elem_to_delete]
+            
+            # Suppression du fichier de localisations
+            loca_file = os.path.join(localisation_folder, f"{elem_to_delete}_localisations.xlsx")
+            if os.path.exists(loca_file):
+                os.remove(loca_file)
+            
+            df_elements.to_excel(element_path, index=False)
+            st.success("Élément supprimé !")
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"Erreur : {str(e)}")
+
 st.sidebar.markdown("---")
 st.sidebar.subheader("📄 Coller une nouvelle schématèque")
 
@@ -133,7 +198,7 @@ st.sidebar.subheader("🗺️ Gestion des Localisations")
 
 with st.sidebar.expander("🔍 Voir toutes les localisations"):
     st.dataframe(df_corres, use_container_width=True)
-    
+
 with st.sidebar.expander("✏️ Modifier une localisation"):
     loca_to_edit = st.selectbox(
         "Choisir une localisation à modifier",
