@@ -162,11 +162,11 @@ if schema_input:
     }
 
     if new_loca_items:
-        st.markdown("### 🆕 Nouvelles localisations détectées")
+        count = len(new_loca_items)
+        st.markdown(f"### 🆕 {count} nouvelle{'s' if count>1 else ''} localisation{'s' if count>1 else ''} détectée{'s' if count>1 else ''}")
         st.info("🛠️ Pour chaque localisation, tu peux la renommer, ajuster son code, choisir ses éléments et indiquer l’UET.")
-
+        
         all_elements = df_elements["ELEMENT"].tolist()
-
         for orig_code, orig_label in new_loca_items.items():
             with st.expander(f"➡️ {orig_code} – {orig_label}"):
                 # 1) Permettre la modification du code et du label
