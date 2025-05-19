@@ -15,7 +15,6 @@ def rerun():
         # hack pour forcer le rerun sur versions plus anciennes
         st.error(f"Erreur lors du rerun : {e}")
 
-
 # ————————————————————————————————
 # 0. Helpers pour config utilisateur
 # ————————————————————————————————
@@ -45,16 +44,24 @@ if "base_dir" not in conf:
         key="init_path"
     )
     if st.sidebar.button("💾 Valider le chemin"):
+        # Debug : afficher ce qui est saisi et l’état du dossier
+        st.sidebar.write("Chemin saisi :", repr(path))
+        st.sidebar.write("Existe ? ", os.path.isdir(path))
+        parent = os.path.dirname(path)
+        if os.path.isdir(parent):
+            st.sidebar.write("→ Contenu du dossier parent :", os.listdir(parent))
+        else:
+            st.sidebar.write("Le dossier parent n’existe pas :", repr(parent))
+
+        # Ton if original
         if os.path.isdir(path):
             conf["base_dir"] = path
             save_user_config(conf)
-            st.sidebar.success("Chemin enregistré !")
-            st.rerun()
+            st.sidebar.success("Chemin enregistré !")
+            rerun()
         else:
             st.sidebar.error("Le dossier n’existe pas, vérifie le chemin.")
-    st.stop()  # on stoppe le reste de l’app tant que base_dir n’est pas configuré
 
-base_dir = conf["base_dir"]  # on peut l’utiliser ensuite partout
 
 # ————————————————————————————————
 # 2. Authentification simple
