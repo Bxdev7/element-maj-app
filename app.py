@@ -50,14 +50,10 @@ if "role" not in st.session_state:
         if USERS.get(user) == pwd:
             st.session_state.role = user
             st.sidebar.success(f"Connecté en tant que {user}")
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.sidebar.error("Identifiants incorrects")
     st.stop()
-
-# Tu as maintenant :
-#   base_dir = conf["base_dir"]
-#   st.session_state.role == "admin" ou "acteur"
 
 
 st.set_page_config(page_title="Mise à jour d'élément GRET", layout="wide")
