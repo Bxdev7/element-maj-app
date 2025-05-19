@@ -3,6 +3,78 @@ import pandas as pd
 import os
 from io import BytesIO
 
+import streamlit as st
+import os
+import hashlib
+import json
+
+# ————————————————————————————————
+# 0. Helpers pour config utilisateur
+# ————————————————————————————————
+CONFIG_FILE = os.path.expanduser("~/.elem_maj_config.json")
+
+def load_user_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            return json.load(open(CONFIG_FILE))
+        except:
+            return {}
+    return {}
+
+def save_user_config(conf):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(conf, f)
+
+# ————————————————————————————————
+# 1. Saisie du chemin racine
+# ————————————————————————————————
+conf = load_user_config()
+if "base_dir" not in conf:
+    st.sidebar.subheader("⚙️ Configuration initiale")
+    path = st.sidebar.text_input(
+        "Chemin local du dossier element-maj-app",
+        placeholder=r"C:\Users\X\OneDrive – Renault\element‑maj‑app",
+        key="init_path"
+    )
+    if st.sidebar.button("💾 Valider le chemin"):
+        if os.path.isdir(path):
+            conf["base_dir"] = path
+            save_user_config(conf)
+            st.sidebar.success("Chemin enregistré !")
+            st.experimental_rerun()
+        else:
+            st.sidebar.error("Le dossier n’existe pas, vérifie le chemin.")
+    st.stop()  # on stoppe le reste de l’app tant que base_dir n’est pas configuré
+
+base_dir = conf["base_dir"]  # on peut l’utiliser ensuite partout
+
+# ————————————————————————————————
+# 2. Authentification simple
+# ————————————————————————————————
+# (pour prototype on stocke en clair, mais en prod il faut hash sécurisé / LDAP…)
+USERS = {
+    "admin": "motdepasseAdmin",
+    "acteur": "motdepasseActeur"
+}
+
+if "role" not in st.session_state:
+    st.sidebar.subheader("🔐 Connexion")
+    user = st.sidebar.selectbox("Profil", ["admin", "acteur"], key="login_user")
+    pwd  = st.sidebar.text_input("Mot de passe", type="password", key="login_pwd")
+    if st.sidebar.button("🔑 Se connecter"):
+        if USERS.get(user) == pwd:
+            st.session_state.role = user
+            st.sidebar.success(f"Connecté en tant que {user}")
+            st.experimental_rerun()
+        else:
+            st.sidebar.error("Identifiants incorrects")
+    st.stop()
+
+# Tu as maintenant :
+#   base_dir = conf["base_dir"]
+#   st.session_state.role == "admin" ou "acteur"
+
+
 st.set_page_config(page_title="Mise à jour d'élément GRET", layout="wide")
 st.title("📄 Mise à jour d'élément GRET")
 def rerun():
