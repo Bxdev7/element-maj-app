@@ -32,36 +32,6 @@ def save_user_config(conf):
     with open(CONFIG_FILE, "w") as f:
         json.dump(conf, f)
 
-# ————————————————————————————————
-# 1. Saisie du chemin racine
-# ————————————————————————————————
-conf = load_user_config()
-if "base_dir" not in conf:
-    st.sidebar.subheader("⚙️ Configuration initiale")
-    path = st.sidebar.text_input(
-        "Chemin local du dossier element-maj-app",
-        placeholder=r"C:\Users\X\OneDrive – Renault\element‑maj‑app",
-        key="init_path"
-    )
-    if st.sidebar.button("💾 Valider le chemin"):
-        # Debug : afficher ce qui est saisi et l’état du dossier
-        st.sidebar.write("Chemin saisi :", repr(path))
-        st.sidebar.write("Existe ? ", os.path.isdir(path))
-        parent = os.path.dirname(path)
-        if os.path.isdir(parent):
-            st.sidebar.write("→ Contenu du dossier parent :", os.listdir(parent))
-        else:
-            st.sidebar.write("Le dossier parent n’existe pas :", repr(parent))
-
-        # Ton if original
-        if os.path.isdir(path):
-            conf["base_dir"] = path
-            save_user_config(conf)
-            st.sidebar.success("Chemin enregistré !")
-            rerun()
-        else:
-            st.sidebar.error("Le dossier n’existe pas, vérifie le chemin.")
-
 
 # ————————————————————————————————
 # 2. Authentification simple
