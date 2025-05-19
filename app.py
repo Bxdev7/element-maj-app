@@ -8,6 +8,14 @@ import os
 import hashlib
 import json
 
+def rerun():
+    try:
+        st.rerun()
+    except AttributeError:
+        # hack pour forcer le rerun sur versions plus anciennes
+        st.error(f"Erreur lors du rerun : {e}")
+
+
 # ————————————————————————————————
 # 0. Helpers pour config utilisateur
 # ————————————————————————————————
@@ -41,7 +49,7 @@ if "base_dir" not in conf:
             conf["base_dir"] = path
             save_user_config(conf)
             st.sidebar.success("Chemin enregistré !")
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.sidebar.error("Le dossier n’existe pas, vérifie le chemin.")
     st.stop()  # on stoppe le reste de l’app tant que base_dir n’est pas configuré
@@ -77,12 +85,6 @@ if "role" not in st.session_state:
 
 st.set_page_config(page_title="Mise à jour d'élément GRET", layout="wide")
 st.title("📄 Mise à jour d'élément GRET")
-def rerun():
-    try:
-        st.rerun()
-    except AttributeError:
-        # hack pour forcer le rerun sur versions plus anciennes
-        st.error(f"Erreur lors du rerun : {e}")
 
 
 # ========== FONCTIONS CACHÉES ==========
