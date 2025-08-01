@@ -42,29 +42,46 @@ streamlit run app.py
 
 python launcher.py
 
+---
 
-🏗️ Tech Stack
-Python 3.10+
+## 🏗️ Tech Stack
 
-Streamlit
+- **Python 3.10+**
+- **Streamlit**
+- **Pandas / NumPy**
+- **Openpyxl**
+- Custom Excel + JSON structure
+- No database required (file-based architecture)
 
-Pandas / NumPy
+---
 
-Openpyxl
+## 🔐 Authentication
 
-Custom Excel + JSON structure
+- Users are authenticated via hashed credentials stored in `user_credentials.json`  
+- Logic is easily extendable to LDAP or token-based systems  
+- Minimal setup, functional offline
 
-No database required (file-based architecture)
+---
 
-🔐 Authentication
-Users are authenticated via hashed credentials (user_credentials.json). Auth logic is easily extendable for LDAP or token-based systems.
+## 📈 Impact
 
-📈 Impact
-Replaced a fully manual Excel-based process
+- Replaced a **fully manual Excel-based** process
+- Improved **reliability and traceability** for over **75,000 defect records**
+- Deployed in a **network-isolated factory environment**
+- Contributed to **FlexEVan project readiness** through structured failure management
 
-Improved update reliability and traceability for 75,000+ defect records
+---
 
-Deployed in factory environment with no internet access
+## 👨🏿‍💻 Author
+
+**Brandon-Christopher Etocha**  
+*Data & Industrial Process Intern – Renault Sandouville*
+
+📍 France  
+🔗 [LinkedIn](https://...) • [Portfolio](https://...)
+
+---
+
 
 Helped prepare defect management processes for FlexEVan launch
 
