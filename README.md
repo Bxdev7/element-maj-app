@@ -2,7 +2,7 @@
 
 **Offline Streamlit App to Semi-Automatically Update Automotive Failure Catalogs**
 
-./assets/GMA_visuel_exploration_blocs.png
+![Screenshot](./assets/GMA_visuel_exploration_blocs.png)
 
 ## 🔍 Overview
 
@@ -26,7 +26,7 @@ The tool automates the extraction, association, and validation of failure data d
 
 ## 🧩 Folder Structure
 
-./assets/structure_dossier_projet_gma.png
+![Screenshot](./assets/structure_dossier_projet_gma.png)
 
 
 ---
