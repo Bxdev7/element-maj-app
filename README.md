@@ -2,7 +2,7 @@
 
 **Offline Streamlit App to Semi-Automatically Update Automotive Failure Catalogs**
 
-
+assets/GMA_visuel_exploration_blocs.png
 
 ## 🔍 Overview
 
