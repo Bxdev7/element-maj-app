@@ -1,3 +1,11 @@
+"""
+*
+* @author : Brandon C. ETOCHA
+* @update : Cette version permet une gestion des catalogues de défaillance par projet.
+* @date : 23/07/2025
+*
+"""
+
 import streamlit as st
 import pandas as pd
 import os
@@ -6,7 +14,8 @@ import hashlib
 import json
 from datetime import datetime
 import re
-from difflib import SequenceMatcher
+from difflib import SequenceMatcher, Differ
+import numpy as np
 
 # ==============================================================================
 # 0. Helpers généraux
@@ -74,9 +83,17 @@ def generate_empty_localisations(file_path):
     rerun()
     return df_vierge
 
-import os
-import pandas as pd
-from difflib import SequenceMatcher
+def ensure_blocs_fonctions_file(base_dir: str, project: str) -> str:
+    """Vérifie l'existence du fichier blocs_fonctions pour le projet, le crée si nécessaire"""
+    path = os.path.join(base_dir, f"data/blocs_fonctions_{project}.xlsx")
+    if not os.path.exists(path):
+        df = pd.DataFrame(columns=[
+            "Code élément",
+            "Libellé élément Schémathèque", 
+            "Libéllé Retenu"
+        ])
+        df.to_excel(path, index=False)
+    return path
 
 # ============================================================================== 
 # 1. Fonctions de recommandation enrichies
@@ -145,7 +162,6 @@ def recommander_fonctions(
 
     return [elem for _, elem in recommandations]
 
-
 def recommander_par_intitule(
     bloc_title: str,
     df_elements: pd.DataFrame,
@@ -181,56 +197,108 @@ def recommander_par_intitule(
     recos.sort(reverse=True, key=lambda x: x[0])
     return recos[:5]
 
-
 def propagate_to_similar(
     target: str,
     df_blocs_fonctions: pd.DataFrame,
-    threshold: float = 0.85,
+    base_dir: str,
+    project,
+    threshold: float = 0.875,
     path_weight: float = 0.6,
-    name_weight: float = 0.4
-) -> dict[str, list[str]]:
+    name_weight: float = 0.4,
+    reference_titles: set = None,
+    existing_functions: set = None
+) -> tuple[dict[str, list[str]], float, dict[str, list[str]], dict[str, float]]:
     """
-    Compare avec TOUS les blocs historiques et regroupe toutes les fonctions des blocs similaires.
-    Adapté pour la nouvelle structure du fichier blocs_fonctions.
+    Compare avec TOUS les blocs historiques et regroupe toutes les fonctions des blocs similaires,
+    en excluant celles déjà associées au bloc cible.
+
+    Retourne :
+    - prop : dictionnaire avec toutes les fonctions similaires
+    - best_score : le meilleur score rencontré
+    - similar_sources : dict {bloc similaire: [fonctions associées]}
+    - bloc_scores : dict {bloc similaire: score de similarité avec le bloc cible}
     """
-    prop = {}
-    all_functions = set()
+    # Charger tous les fichiers blocs_fonctions des autres projets
+    all_blocs_files = [f for f in os.listdir(os.path.join(base_dir, "data")) 
+                      if f.startswith("blocs_fonctions_") and f.endswith(".xlsx")]
     
-    # Extraire les parties du bloc cible
+    # Concaténer tous les DataFrames
+    all_blocs = [df_blocs_fonctions]
+    for file in all_blocs_files:
+        if file != f"blocs_fonctions_{project}.xlsx":  # Éviter de charger le fichier courant deux fois
+            path = os.path.join(base_dir, "data", file)
+            df = pd.read_excel(path)
+            all_blocs.append(df)
+    
+    full_df = pd.concat(all_blocs, ignore_index=True)
+    
+    # Le reste de la fonction reste identique mais utilise full_df au lieu de df_blocs_fonctions
+    prop = {}
+    similar_sources = {}
+    bloc_scores = {}
+    all_functions = set()
+
+    if existing_functions is None:
+        existing_functions = set()
+
     target_parts = target.split('/')
     target_path = '/'.join(target_parts[:-1])
     target_name = target_parts[-1]
-    
-    # Parcourir tous les blocs existants
-    for _, row in df_blocs_fonctions.iterrows():
+
+    best_score = 0.0
+
+    for _, row in full_df.iterrows():
         oth = row["Libellé élément Schémathèque"]
         if oth == target or pd.isna(oth):
             continue
-            
+
+        if reference_titles is not None and oth not in reference_titles:
+            continue
+
         oth_parts = str(oth).split('/')
         oth_path = '/'.join(oth_parts[:-1])
         oth_name = oth_parts[-1]
-        
-        # Calcul des similarités pondérées
+
         path_sim = SequenceMatcher(None, target_path.lower(), oth_path.lower()).ratio() * path_weight
         name_sim = SequenceMatcher(None, target_name.lower(), oth_name.lower()).ratio() * name_weight
         combined_score = path_sim + name_sim
-        
+
         if combined_score >= threshold:
-            # Ajouter la fonction associée à ce bloc similaire
             f = row["Code élément"]
             if isinstance(f, str):
-                all_functions.add(f.strip())
-    
-    # Retourner toutes les fonctions groupées
+                f = f.strip()
+                if f not in existing_functions:
+                    all_functions.add(f)
+                    if oth not in similar_sources:
+                        similar_sources[oth] = []
+                    similar_sources[oth].append(f)
+
+            bloc_scores[oth] = combined_score
+
+            if combined_score > best_score:
+                best_score = combined_score
+
     if all_functions:
         prop["TOUTES LES FONCTIONS SIMILAIRES"] = sorted(all_functions)
-    
-    return prop
+
+    return prop, best_score, similar_sources, bloc_scores
+
 
 # ==============================================================================
 # 2. Config utilisateur & authentification
 # ==============================================================================
+def compute_hash(text: str) -> str:
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
+
+def load_index(index_file: str):
+    if os.path.exists(index_file):
+        with open(index_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_index(index: dict, index_file: str):
+    with open(index_file, "w", encoding="utf-8") as f:
+        json.dump(index, f, ensure_ascii=False, indent=2)
 CONFIG_FILE = os.path.expanduser("~/.elem_maj_config.json")
 
 def load_user_config():
@@ -278,100 +346,278 @@ def auth_user():
                 st.sidebar.error("Identifiants incorrects")
         st.stop()
 
+
 # ==============================================================================
 # 3. Gestion des schémathèques
 # ==============================================================================
-def compute_hash(text: str) -> str:
-    return hashlib.md5(text.encode("utf-8")).hexdigest()
+def manage_schema_history(base_dir: str) -> tuple:
+    """
+    Gère l'historique des schémathèques avec upload, sélection et gestion des fichiers existants.
+    Retourne: (schema_text, found_localisations, index, project)
+    """
+    # Chargement de la liste des projets
+    try:
+        with open("Liste_projets.txt", "r", encoding="utf-8") as f:
+            liste_projet = [p.strip() for p in f.read().split(",") if p.strip()]
+    except FileNotFoundError:
+        liste_projet = []
+        with open("Liste_projets.txt", "w", encoding="utf-8") as f:
+            f.write("")
 
-def load_index(index_file: str):
-    if os.path.exists(index_file):
-        with open(index_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def save_index(index: dict, index_file: str):
-    with open(index_file, "w", encoding="utf-8") as f:
-        json.dump(index, f, ensure_ascii=False, indent=2)
-
-def manage_schema_history(base_dir: str):
+    # Initialisation des répertoires
     HISTORY_DIR = os.path.join(base_dir, "schema_history")
     os.makedirs(HISTORY_DIR, exist_ok=True)
     INDEX_FILE = os.path.join(HISTORY_DIR, "index.json")
     
     index = load_index(INDEX_FILE)
-    
-    # Upload de nouvelle schémathèque
-    uploaded = st.sidebar.file_uploader("📁 Télécharger un fichier .txt de schémathèque", type="txt")
-    new_filename = st.sidebar.text_input("📝 Nom du fichier (sans extension)", key="custom_filename")
-    
-    if uploaded is not None:
-        sch_content = uploaded.read().decode("utf-8")
-        h = compute_hash(sch_content)
-
-        if h not in index:
-            if not new_filename:
-                st.sidebar.error("❌ Merci de donner un nom de fichier avant d'enregistrer.")
-                st.stop()
-
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            fname = f"{new_filename.replace(' ', '_')}_{ts}.txt"
-            path_txt = os.path.join(HISTORY_DIR, fname)
-
-            with open(path_txt, "w", encoding="utf-8") as f_txt:
-                f_txt.write(sch_content)
-
-            index[h] = {"filename": fname, "timestamp": ts}
-            save_index(index, INDEX_FILE)
-            st.sidebar.success("✅ schémathèque ajoutée à l'historique !")
-            new_filename = ""
-            rerun()
-        else:
-            st.sidebar.info("ℹ️ Cette schémathèque est déjà enregistrée dans l'historique.")
-
-    # Sélection d'une schémathèque existante
-    if not index:
-        st.sidebar.info("ℹ️ Aucune schémathèque enregistrée pour le moment.")
-        return None
-    
-    sorted_items = sorted(index.items(), key=lambda x: x[1]["timestamp"], reverse=True)
-    options = [v["filename"] for k, v in sorted_items]
-    
-    selected_filename = st.sidebar.selectbox(
-        "📜 Choisir une schémathèque existante", 
-        options, 
-        index=0
-    )
-
-    selected_path = os.path.join(HISTORY_DIR, selected_filename)
-    with open(selected_path, "r", encoding="utf-8") as f:
-        schema_text = f.read()
-    
-    st.sidebar.success(f"✅ schémathèque chargée : {selected_filename}")
-    
-    # Détection des nouvelles localisations
-    lines = schema_text.splitlines()
+    project = None
+    schema_text = None
     found_localisations = {}
+    
+    # Utilisation d'onglets
+    tab1, tab2 = st.tabs(["📤 Uploader une schémathèque", "🗃️ Gérer les schémathèques"])
+    
+    with tab1:
+        # Section upload de nouvelle schémathèque
+        uploaded = st.file_uploader("📁 Télécharger un fichier .txt de schémathèque", type="txt")
+        
+        if uploaded:
+            new_filename = st.text_input("📝 Nom du fichier (sans extension)", key="custom_filename")
+            
+            # Gestion des projets
+            col1, col2 = st.columns(2)
+            with col1:
+                project = st.radio("Choisir un projet existant:", liste_projet, 
+                                 horizontal=True, key="project_filter")
+            with col2:
+                nv_projet = st.text_input("Ou créer un nouveau projet:", key="custom_project_name")
+                
+            if nv_projet and nv_projet not in liste_projet:
+                liste_projet.append(nv_projet)
+                with open("Liste_projets.txt", "w", encoding="utf-8") as f:
+                    f.write(",".join(liste_projet))
+                project = nv_projet
 
-    for line in lines:
-        texte = line.strip()
-        if not texte or "/" in texte or not re.match(r"^[A-Za-z0-9]", texte):
-            continue
+                # Création du nouveau fichier blocs_fonctions
+                blocs_fonctions_path = os.path.join(base_dir, f"data/blocs_fonctions_{nv_projet}.xlsx")
+                if not os.path.exists(blocs_fonctions_path):
+                    df_nouveau = pd.DataFrame(columns=[
+                        "Code élément",
+                        "Libellé élément Schémathèque",
+                        "Libéllé Retenu"
+                    ])
+                    df_nouveau.to_excel(blocs_fonctions_path, index=False)
+                    st.success(f"Nouveau fichier créé : blocs_fonctions_{nv_projet}.xlsx")
 
-        if ";" in texte:
-            parts = texte.split(";", maxsplit=1)
-            code_brut = parts[0].strip()
-            label = parts[1].strip().upper() if len(parts) > 1 else ""
+                # AJOUT DE LA NOUVELLE COLONNE UET
+                uet_col = f"UET {nv_projet}"
+                corres_path = os.path.join(base_dir, "data/localisation_uet.xlsx")
+                df_corres = pd.read_excel(corres_path)
+                
+                if uet_col not in df_corres.columns:
+                    df_corres[uet_col] = ""  # Crée la nouvelle colonne vide
+                    df_corres.to_excel(corres_path, index=False)
+                    st.success(f"Nouvelle colonne '{uet_col}' ajoutée au fichier de correspondance")
+            
+            # Validation et sauvegarde
+            if st.button("💾 Enregistrer la schémathèque", key="save_btn"):
+                if not new_filename:
+                    st.error("❌ Un nom de fichier est requis")
+                    st.stop()
+                
+                # Formatage du nom de fichier
+                if not new_filename.endswith('.txt'):
+                    new_filename += '.txt'
+                
+                full_path = os.path.join(HISTORY_DIR, new_filename)
+                
+                # Vérification doublon
+                if os.path.exists(full_path):
+                    st.error(f"❌ Le fichier '{new_filename}' existe déjà!")
+                    st.stop()
+                
+                # Lecture et vérification du contenu
+                sch_content = uploaded.getvalue().decode("utf-8")
+                if not sch_content.strip():
+                    st.error("❌ Le fichier est vide!")
+                    st.stop()
+                
+                # Calcul hash pour éviter les doublons
+                h = compute_hash(sch_content)
+                if any(entry.get("hash") == h for entry in index.values()):
+                    st.warning("⚠️ Une schémathèque identique existe déjà!")
+                    st.stop()
+                
+                # Sauvegarde du fichier
+                with open(full_path, "w", encoding="utf-8") as f:
+                    f.write(sch_content)
+                
+                # Mise à jour de l'index
+                timestamp = datetime.now().isoformat()
+                index[new_filename] = {
+                    "filename": new_filename,
+                    "project": project,
+                    "timestamp": timestamp,
+                    "hash": h
+                }
+                save_index(index, INDEX_FILE)
+                st.success(f"✅ Schémathèque '{new_filename}' enregistrée pour le projet '{project}'")
+                st.rerun()
+
+
+        if index:
+            # Tri par date décroissante
+            sorted_schemas = sorted(index.items(), key=lambda x: x[1].get("timestamp", ""), reverse=True)
+
+            # # Chargement automatique de la dernière si aucune sélection manuelle
+            # if not schema_text and index:
+            #     latest_schema = sorted_schemas[0][1]  # Premier élément après le tri
+            #     latest_path = os.path.join(HISTORY_DIR, latest_schema['filename'])
+            #     with open(latest_path, "r", encoding="utf-8") as f:
+            #         schema_text = f.read()
+            #     project = latest_schema.get("project")
+            #     st.info(f"ℹ️ Chargement automatique de la dernière schémathèque: {latest_schema['filename']}")
+
+
+            
+            # Création des options pour le selectbox
+            schema_options = []
+            for schema_name, schema_data in sorted_schemas:
+                display_text = (
+                    f"{schema_data['filename']} "
+                    f"({schema_data.get('project', '?')}) - "
+                    f"{schema_data.get('timestamp', 'date inconnue')}"
+                )
+                schema_options.append((schema_name, schema_data['filename'], display_text))
+            
+            # Sélection manuelle
+            selected_option = st.selectbox(
+                "Sélectionner dans l'historique:",
+                options=schema_options,
+                format_func=lambda x: x[0].strip().replace(".txt", ""),
+                key="manual_schema_select"
+            )
+            
+            if selected_option and st.button("Charger cette schémathèque"):
+                schema_name, filename, _ = selected_option
+                selected_path = os.path.join(HISTORY_DIR, filename)
+                with open(selected_path, "r", encoding="utf-8") as f:
+                    schema_text = f.read()
+                project = index[schema_name].get("project")
+                st.success(f"Schémathèque chargée: {filename}")
+                st.session_state["schema_data"] = schema_text, found_localisations, index, project
+                # st.rerun()
+
+
+    with tab2:
+        # Section gestion des schémathèques existantes
+        if not index:
+            st.info("ℹ️ Aucune schémathèque enregistrée")
         else:
-            parts = texte.split(maxsplit=1)
-            code_brut = parts[0]
-            label = parts[1].strip().upper() if len(parts) > 1 else ""
+            # Tri par date décroissante
+            sorted_items = sorted(index.items(), 
+                                key=lambda x: x[1].get("timestamp", ""), 
+                                reverse=True)
+            
+            # Sélection d'une schémathèque
+            selected_filename = st.selectbox(
+                "📜 Schémathèques disponibles",
+                options=[v["filename"] for k, v in sorted_items],
+                format_func=lambda x: f"{x} ({index[x].get('project', '?')})",
+                key="schema_selector"
+            )
+            
+            if selected_filename:
+                selected_path = os.path.join(HISTORY_DIR, selected_filename)
+                project_to_delete = index[selected_filename].get("project")
+                
+                # Boutons d'actions
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if st.button("🔍 Afficher", key="show_btn"):
+                        with open(selected_path, "r", encoding="utf-8") as f:
+                            schema_text = f.read()
+                            st.code(schema_text, language="text")
+                
+                with col2:
+                    if st.button("🗑️ Supprimer", key="del_btn"):
+                        if os.path.exists(selected_path):
+                            # 1. Suppression du fichier
+                            os.remove(selected_path)
+                            
+                            # 2. Suppression de l'index
+                            index.pop(selected_filename)
+                            save_index(index, INDEX_FILE)
+                            
+                            # 3. Suppression de la colonne UET si c'est la dernière schémathèque du projet
+                            if project_to_delete:
+                                # Vérifier s'il reste des schémathèques pour ce projet
+                                other_schemas_for_project = any(
+                                    v.get("project") == project_to_delete 
+                                    for v in index.values()
+                                )
+                                
+                                if not other_schemas_for_project:
+                                    # Suppression de la colonne UET
+                                    corres_path = os.path.join(base_dir, "data/localisation_uet.xlsx")
+                                    if os.path.exists(corres_path):
+                                        df_corres = pd.read_excel(corres_path)
+                                        uet_col = f"UET {project_to_delete}"
+                                        
+                                        if uet_col in df_corres.columns:
+                                            df_corres.drop(columns=[uet_col], inplace=True)
+                                            df_corres.to_excel(corres_path, index=False)
+                                            st.success(f"Colonne {uet_col} supprimée")
+                                    
+                                    # Suppression du projet de la liste
+                                    try:
+                                        with open("Liste_projets.txt", "r", encoding="utf-8") as f:
+                                            projects = [p.strip() for p in f.read().split(",") if p.strip()]
+                                        
+                                        if project_to_delete in projects:
+                                            projects.remove(project_to_delete)
+                                            with open("Liste_projets.txt", "w", encoding="utf-8") as f:
+                                                f.write(",".join(projects))
+                                    except FileNotFoundError:
+                                        pass
+                            
+                            st.success("✅ Schémathèque et données associées supprimées")
+                            st.rerun()
+                
+                with col3:
+                    if st.button("📥 Télécharger", key="dl_btn"):
+                        with open(selected_path, "rb") as f:
+                            st.download_button(
+                                label="⬇️ Télécharger",
+                                data=f,
+                                file_name=selected_filename,
+                                mime="text/plain"
+                            )
+ 
+    
 
-        clean_code = extract_clean(code_brut)
-        if clean_code and len(clean_code) <= 8 and clean_code not in found_localisations:
-            found_localisations[clean_code] = label
+    # Détection des localisations si schémathèque chargée
+    if schema_text:
+        lines = schema_text.splitlines()
+        for line in lines:
+            texte = line.strip()
+            if not texte or "/" in texte or not re.match(r"^[A-Za-z0-9]", texte):
+                continue
 
-    return schema_text, found_localisations
+            if ";" in texte:
+                parts = texte.split(";", maxsplit=1)
+                code_brut = parts[0].strip()
+                label = parts[1].strip().upper() if len(parts) > 1 else ""
+            else:
+                parts = texte.split(maxsplit=1)
+                code_brut = parts[0]
+                label = parts[1].strip().upper() if len(parts) > 1 else ""
+
+            clean_code = extract_clean(code_brut)
+            if clean_code and len(clean_code) <= 8 and clean_code not in found_localisations:
+                found_localisations[clean_code] = label
+
+    return (schema_text, found_localisations, index, project) if schema_text else None
 
 # ==============================================================================
 # 4. Parsing de la schémathèque
@@ -439,7 +685,7 @@ def parse_schema(schema_text: str) -> tuple[list[dict], dict]:
         for c in bloc_obj["clean_set"]:
             clean2blocks.setdefault(c, []).append(bloc_obj)
         
-        if block_codes[0]["title"].startswith("LIST"):
+        if block_codes and block_codes[0]["title"].startswith("LIST"):
             block_codes = block_codes[1:]
 
     return block_codes, clean2blocks
@@ -447,14 +693,17 @@ def parse_schema(schema_text: str) -> tuple[list[dict], dict]:
 # ==============================================================================
 # 5. Chargement des données
 # ==============================================================================
-def load_common_data(base_dir: str):
+def load_common_data(project, base_dir: str):
+    # Vérifie/crée le fichier blocs_fonctions si nécessaire
+    blocs_path = ensure_blocs_fonctions_file(base_dir, project)
+    
     data_paths = {
         "incident_path": os.path.join(base_dir, "data/incidents.xlsx"),
         "element_path": os.path.join(base_dir, "data/elements.xlsx"),
         "corres_path": os.path.join(base_dir, "data/localisation_uet.xlsx"),
-        "blocs_fonctions_path": os.path.join(base_dir, "data/blocs_fonctions.xlsx"),
+        "blocs_fonctions_path": blocs_path,
         "template_path": os.path.join(base_dir, "data/template.xlsx"),
-        "localisation_folder": os.path.join(base_dir, "data/localisations")
+        "localisation_folder": os.path.join(base_dir, f"data/localisations_{project}")
     }
     
     data = {}
@@ -475,10 +724,11 @@ def load_common_data(base_dir: str):
 # ==============================================================================
 # 6. Fonctions pour la sidebar
 # ==============================================================================
-def show_sidebar_sections(data, found_localisations=None):
+def show_sidebar_sections(data, project, found_localisations=None):
     """Affiche toutes les sections de la sidebar"""
     st.sidebar.markdown("---")
-    
+    uet_projet = " ".join(("UET", project))
+
     # Gestion des Éléments
     st.sidebar.subheader("🧩 Gestion des Éléments")
     with st.sidebar.expander("🔍 Voir tous les éléments existants"):
@@ -580,7 +830,7 @@ def show_sidebar_sections(data, found_localisations=None):
                     with cols[0]:
                         st.text_input("Code Localisation", value=code, disabled=True, key=f"new_loc_{code}")
                     with cols[1]:
-                        uet = st.text_input("UET", key=f"new_uet_{code}", placeholder="Ex: RET")
+                        uet = st.text_input(uet_projet, key=f"new_uet_{code}", placeholder="Ex: RET")
                         if uet:
                             uet_mapping[code] = uet
                 
@@ -591,7 +841,7 @@ def show_sidebar_sections(data, found_localisations=None):
                         if uet_mapping:
                             new_entries = [{
                                 "Code Loca": code,
-                                "UET": uet,
+                                uet_projet: uet,
                                 "Famille": "",
                                 "Sous-famille": "",
                                 "Libellé Long Loca": new_loca_items[code]
@@ -607,9 +857,6 @@ def show_sidebar_sections(data, found_localisations=None):
                         else:
                             st.warning("Aucune UET renseignée")
 
-
-
-    
     with st.sidebar.expander("🔍 Voir toutes les localisations"):
         st.dataframe(data["corres_path"], use_container_width=True)
 
@@ -623,13 +870,13 @@ def show_sidebar_sections(data, found_localisations=None):
         edit_data = data["corres_path"].loc[data["corres_path"]["Code Loca"] == loca_to_edit].iloc[0]
         new_code = st.text_input("Code Loca", value=edit_data["Code Loca"], key="edit_loca_code")
         new_label = st.text_input("Libellé Long Loca", value=edit_data["Libellé Long Loca"], key="edit_loca_label")
-        new_uet = st.text_input("UET", value=edit_data["UET"], key="edit_loca_uet")
+        new_uet = st.text_input(uet_projet, value=edit_data[uet_projet], key="edit_loca_uet")
 
         if st.button("💾 Enregistrer les modifications", key="edit_loca_btn"):
             try:
                 data["corres_path"].loc[data["corres_path"]["Code Loca"] == loca_to_edit, "Code Loca"] = new_code
                 data["corres_path"].loc[data["corres_path"]["Code Loca"] == new_code, "Libellé Long Loca"] = new_label
-                data["corres_path"].loc[data["corres_path"]["Code Loca"] == new_code, "UET"] = new_uet
+                data["corres_path"].loc[data["corres_path"]["Code Loca"] == new_code, uet_projet] = new_uet
                 data["corres_path"].to_excel(os.path.join(data["base_dir"], "data/localisation_uet.xlsx"), index=False)
                 st.success("Localisation modifiée avec succès !")
                 rerun()
@@ -713,283 +960,239 @@ def show_sidebar_sections(data, found_localisations=None):
 # ==============================================================================
 # 7. Mode "Explorer Blocs"
 # ==============================================================================
-def show_block_explorer(block_codes, data):
+def show_block_explorer(block_codes, data, project, reference_titles=None):
+
+    project = project
+    st.subheader("🔍 Explorer les blocs de la schémathèque")
+
     mapping = charger_correspondances_fonctions()
     all_titles = [b["title"] for b in block_codes]
-    
-    st.subheader("🔍 Explorer les blocs de la schémathèque")
+    current_titles = set(all_titles)
+    blocs_rattaches = set(data["blocs_fonctions_path"]["Libellé élément Schémathèque"].astype(str).unique())
     
     nb_total = len(block_codes)
-    current_titles = {b["title"] for b in block_codes}  # Tous les titres actuels
-    
-    # Modification pour la nouvelle structure du fichier blocs_fonctions
-    blocs_rattaches = [b for b in data["blocs_fonctions_path"]["Libellé élément Schémathèque"].astype(str).unique() 
-                       if b in current_titles]  # Filtrage
-    nb_non_rattaches = nb_total - len(blocs_rattaches)
+    nb_non_rattaches = len(current_titles - blocs_rattaches)
 
     st.markdown(f"""
-        - Blocs chargés: `{nb_total}`
-        - Nouveaux blocs: `{nb_non_rattaches}`
+        - Blocs chargés : `{nb_total}`
+        - Nouveaux blocs : `{nb_non_rattaches}`
     """)
-    
-    # Créer une copie du dataframe pour l'affichage
+
+    # Préparation affichage associations
+    element_dict = dict(zip(data["element_path"]["ELEMENT"], data["element_path"]["INTITULE"]))
     df_display = data["blocs_fonctions_path"].copy()
-    
-    # Créer un dictionnaire de correspondance code -> intitulé
-    element_dict = dict(zip(
-        data["element_path"]["ELEMENT"], 
-        data["element_path"]["INTITULE"]
-    ))
-    
-    # Fonction pour formater les fonctions avec leurs intitulés
-    def format_functions(row):
-        code = row["Code élément"]
-        libelle = row["Libéllé Retenu"]
-        intitule = element_dict.get(code, "?")
-        return f"{code} ({intitule}) - {libelle}"
-    
-    # Appliquer le formatage
-    df_display["FONCTIONS"] = df_display.apply(format_functions, axis=1)
-    
-    # Afficher le dataframe formaté
+    df_display["FONCTIONS"] = df_display.apply(
+        lambda row: f"{row['Code élément']} ({element_dict.get(row['Code élément'], '?')}) - {row['Libéllé Retenu']}",
+        axis=1
+    )
+
     with st.expander("🔍 Voir les associations Bloc - Fonction(s) existantes"):
         st.dataframe(df_display[["Libellé élément Schémathèque", "FONCTIONS"]].rename(
-            columns={"Libellé élément Schémathèque": "BLOC"}), 
-            height=400)
-    
-    # Créer un dictionnaire de statut des blocs
-    bloc_status = {
-        title: title in data["blocs_fonctions_path"]["Libellé élément Schémathèque"].values
-        for title in all_titles
-    }
-    
-    # Radio button pour le filtre - style similaire à votre sidebar
-    filter_type = st.radio(
-        "Filtrer les blocs:",
-        options=["Tous", "Avec fonctions", "Sans fonctions"],
-        horizontal=True,
-        key="bloc_filter"
-    )
-    
-    # Filtrer les titres selon la sélection
+            columns={"Libellé élément Schémathèque": "BLOC"}),
+            height=400
+        )
+
+    # Filtrage des blocs selon leur rattachement
+    bloc_status = {title: title in blocs_rattaches for title in all_titles}
+    filter_type = st.radio("Filtrer les blocs :", ["Tous", "Avec fonctions", "Sans fonctions"], horizontal=True, key="bloc_filter")
+
     if filter_type == "Avec fonctions":
-        filtered_titles = [title for title in all_titles if bloc_status[title]]
+        filtered_titles = [t for t in all_titles if bloc_status[t]]
     elif filter_type == "Sans fonctions":
-        filtered_titles = [title for title in all_titles if not bloc_status[title]]
+        filtered_titles = [t for t in all_titles if not bloc_status[t]]
     else:
         filtered_titles = all_titles
-    
-    # Afficher le compteur
-    st.caption(f"Blocs {filter_type.lower()}: {len(filtered_titles)}")
-    
-    # Selectbox avec les blocs filtrés
+
+    st.caption(f"Blocs {filter_type.lower()} : {len(filtered_titles)}")
+
     chosen = st.selectbox(
-        "Choisir un bloc à visualiser:", 
+        "Choisir un bloc à visualiser :", 
         filtered_titles, 
-        key="explore_blk_select",
-        format_func=lambda x: (
-            f"🟢 {x}" if bloc_status[x] else 
-            f"🔴 {x} (Nouveau)"
-        )
+        format_func=lambda x: f"🟢 {x}" if bloc_status[x] else f"🔴 {x} (Nouveau)",
+        key="explore_blk_select"
     )
-        
+
     blk_obj = next((b for b in block_codes if b["title"] == chosen), None)
-    
-    # Rattachements existants - modification pour la nouvelle structure
-    exist = data["blocs_fonctions_path"].loc[
-        data["blocs_fonctions_path"]["Libellé élément Schémathèque"] == chosen, 
-        "Code élément"
-    ].tolist()
-    
     if not blk_obj:
         st.warning("Bloc non trouvé")
         return
-    
+
     st.dataframe(blk_obj["df"])
 
-    
-    if not blk_obj:
-        st.warning("Bloc non trouvé")
-        return
-    
+    # Fonctions déjà rattachées
+    exist = data["blocs_fonctions_path"].loc[
+        data["blocs_fonctions_path"]["Libellé élément Schémathèque"] == chosen,
+        "Code élément"
+    ].dropna().str.strip().tolist()
+
     if exist:
         st.markdown("### ✅ Fonctions rattachées")
-        fonctions = exist
-        
-        # Créer un dataframe pour l'affichage avec case à cocher
+
         df_exist = pd.DataFrame({
-            "Fonction": fonctions,
-            "Intitulé": [data["element_path"].loc[data["element_path"]["ELEMENT"] == f, "INTITULE"].values[0] 
-                         if f in data["element_path"]["ELEMENT"].values else "Inconnu" 
-                         for f in fonctions],
+            "Fonction": exist,
+            "Intitulé": [element_dict.get(f, "Inconnu") for f in exist],
             "Libellé Retenu": data["blocs_fonctions_path"].loc[
-                (data["blocs_fonctions_path"]["Libellé élément Schémathèque"] == chosen) & 
-                (data["blocs_fonctions_path"]["Code élément"].isin(fonctions)),
+                (data["blocs_fonctions_path"]["Libellé élément Schémathèque"] == chosen) &
+                (data["blocs_fonctions_path"]["Code élément"].isin(exist)),
                 "Libéllé Retenu"
             ].values,
-            "Supprimer": [False] * len(fonctions)  # Colonne pour les cases à cocher
+            "Supprimer": [False] * len(exist)
         })
-        
-        # Afficher le tableau avec cases à cocher
+
         edited_df = st.data_editor(
             df_exist,
             column_config={
-                "Supprimer": st.column_config.CheckboxColumn(
-                    "Sélectionner",
-                    help="Cocher pour supprimer cette association",
-                    default=False,
-                )
+                "Supprimer": st.column_config.CheckboxColumn("Sélectionner", help="Cocher pour supprimer cette association")
             },
             disabled=["Fonction", "Intitulé", "Libellé Retenu"],
             hide_index=True,
             use_container_width=True
         )
-        
-        # Bouton de suppression
+
         if st.button("🗑️ Supprimer les associations sélectionnées", type="secondary"):
             to_keep = edited_df[~edited_df["Supprimer"]]["Fonction"].tolist()
-            
-            if len(to_keep) == 0:
-                # Supprimer tout le bloc si plus aucune fonction
+
+            if not to_keep:
                 data["blocs_fonctions_path"] = data["blocs_fonctions_path"][
-                    data["blocs_fonctions_path"]["Libellé élément Schémathèque"] != chosen]
+                    data["blocs_fonctions_path"]["Libellé élément Schémathèque"] != chosen
+                ]
             else:
-                # Mettre à jour avec les fonctions restantes
-                mask = data["blocs_fonctions_path"]["Libellé élément Schémathèque"] == chosen
                 data["blocs_fonctions_path"] = data["blocs_fonctions_path"][
-                    ~mask | (data["blocs_fonctions_path"]["Code élément"].isin(to_keep))]
-            
+                    ~((data["blocs_fonctions_path"]["Libellé élément Schémathèque"] == chosen) &
+                      (~data["blocs_fonctions_path"]["Code élément"].isin(to_keep)))
+                ]
+
             data["blocs_fonctions_path"].to_excel(
-                os.path.join(data["base_dir"], "data/blocs_fonctions.xlsx"), 
+                os.path.join(data["base_dir"], f"data/blocs_fonctions_{project}.xlsx"),
                 index=False
             )
+
             st.success("Suppression effectuée !")
             st.rerun()
 
+    existing_functions = set(exist)
 
-    
-    # Section Recommandations
+    # RECOMMANDATIONS
     st.markdown("## 🔎 Recommandations")
-    
-    # 1. Recommandations par mots-clés
+
     with st.expander("🔍 Par mots-clés", expanded=True):
         direct = recommander_fonctions(chosen, mapping, data["element_path"])
-    
-    # 2. Recommandations sémantiques
+
     with st.expander("🤖 Par similarité sémantique", expanded=True):
         sem = recommander_par_intitule(chosen, data["element_path"], threshold=0.4)
-    
-    # 3. Recommandations par similarité de blocs améliorée
+
     with st.expander("🔄 Par similarité structurelle", expanded=True):
-        prop = propagate_to_similar(chosen, data["blocs_fonctions_path"])
-        
+        # Appel mis à jour pour récupérer aussi les scores par bloc
+        prop, best_score, similar_sources, bloc_scores = propagate_to_similar(
+            chosen,
+            data["blocs_fonctions_path"],
+            data["base_dir"],
+            project,
+            reference_titles=reference_titles,
+            existing_functions=existing_functions
+        )
+
         if prop:
-            st.info("Suggestions basées sur la similarité structurelle:")
-            cols = st.columns(2)
-            with cols[0]:
-                st.metric("Bloc sélectionné", chosen)
-            with cols[1]:
-                st.metric("Fonctions similaires trouvées", len(prop.get("TOUTES LES FONCTIONS SIMILAIRES", [])))
-            
-            # Créer un tableau pour l'affichage
-            similar_data = []
-            for f in prop.get("TOUTES LES FONCTIONS SIMILAIRES", []):
-                intitule = data["element_path"].loc[
-                    data["element_path"]["ELEMENT"] == f, "INTITULE"
-                ].values[0] if f in data["element_path"]["ELEMENT"].values else "Inconnu"
-                
-                similar_data.append({
-                    "Fonction": f,
-                    "Intitulé": intitule
-                })
-            
-            # Afficher sous forme de tableau
+            st.info("Suggestions basées sur la similarité structurelle :")
+            st.markdown(f"Bloc sélectionné : `{chosen}`")
+            st.markdown("### 🔄 Blocs similaires (seuil ≥ 87,5 %)")
+
+            # Nombre de blocs similaires identifiés
+            st.metric("Blocs similaires trouvés", len(similar_sources))
+
+            # Pour chaque bloc similaire, trié par score décroissant
+            for bloc_sim, fonctions in sorted(
+                similar_sources.items(),
+                key=lambda item: bloc_scores.get(item[0], 0.0),
+                reverse=True
+            ):
+                score = bloc_scores.get(bloc_sim, 0.0)
+                score_pct = round(score * 100, 2)
+                st.markdown(f"**{bloc_sim}** — Similarité : {score_pct}%")
+                for fct in fonctions:
+                    libelle = element_dict.get(fct, "Inconnu")
+                    st.markdown(f"- `{fct}` — {libelle}")
+                st.markdown("---")
+
+            # Tableau interactif récapitulatif
+            table_data = []
+            for bloc_sim, fonctions in similar_sources.items():
+                for fct in fonctions:
+                    table_data.append({
+                        "Bloc source": bloc_sim,
+                        "Fonction": fct,
+                        "Intitulé": element_dict.get(fct, "Inconnu"),
+                        "Score (%)": round(bloc_scores.get(bloc_sim, 0.0) * 100, 2)
+                    })
+
             st.dataframe(
-                pd.DataFrame(similar_data),
+                pd.DataFrame(table_data),
                 hide_index=True,
                 use_container_width=True
             )
+
         else:
-            st.warning("Aucune fonction similaire trouvée. Essayez de réduire le seuil si nécessaire.")
-    
-    # Gestion des rattachements
-    # Créer une liste d'options avec code + intitulé
+            st.warning("Aucune fonction similaire trouvée.")
+
+    # ENREGISTREMENT DES NOUVELLES ASSOCIATIONS
+    st.markdown("## 🔗 Ajouter des associations")
+
     elements = data["element_path"].dropna(subset=["ELEMENT", "INTITULE"])
-    options = [
-        (f"{row['ELEMENT']} - {row['INTITULE']}", row['ELEMENT']) 
-        for _, row in elements.iterrows()
-    ]
-    
-    # Extraire les valeurs et labels pour le multiselect
-    option_labels = [opt[0] for opt in options]
-    option_values = [opt[1] for opt in options]
-    
-    # Préparer les valeurs par défaut
+    options = [(f"{row['ELEMENT']} - {row['INTITULE']}", row['ELEMENT']) for _, row in elements.iterrows()]
+    option_labels = [label for label, _ in options]
+    option_values = [val for _, val in options]
+
     defaults = sum(prop.values(), []) if prop else []
     default_indices = [i for i, val in enumerate(option_values) if val in defaults]
 
-    
     selected_labels = st.multiselect(
-        "Associer à des éléments:", 
-        options=option_labels,
-        default=list(dict.fromkeys([option_labels[i] for i in default_indices])),
+        "Associer à des éléments :", 
+        option_labels,
+        default=[option_labels[i] for i in default_indices],
         key=f"assoc_{chosen}"
     )
 
-    # Élimination des doublons (au cas où)
-    selected_labels = list(dict.fromkeys(selected_labels)) 
-    
-    # Extraire les codes éléments sélectionnés
-    selected_codes = [opt[1] for opt in options if opt[0] in selected_labels]
-    
+    selected_codes = [val for label, val in options if label in selected_labels]
+    selected_codes = list(dict.fromkeys(selected_codes))  # Éliminer doublons
+
     if st.button("✅ Enregistrer les associations", key=f"save_{chosen}"):
-        # Récupérer les associations existantes pour ce bloc
-        existing_associations = data["blocs_fonctions_path"][
-            data["blocs_fonctions_path"]["Libellé élément Schémathèque"] == chosen
-        ]
-        
-        # Fusionner anciennes et nouvelles associations
-        if not existing_associations.empty:
-            existing_codes = existing_associations["Code élément"].tolist()
-            all_codes = list(set(existing_codes + selected_codes))  # Union sans doublons
-        else:
-            all_codes = selected_codes
-        
-        # Supprimer l'ancienne entrée si elle existe
+        existing_codes = data["blocs_fonctions_path"].loc[
+            data["blocs_fonctions_path"]["Libellé élément Schémathèque"] == chosen,
+            "Code élément"
+        ].tolist()
+
+        all_codes = list(set(existing_codes + selected_codes))
         data["blocs_fonctions_path"] = data["blocs_fonctions_path"][
             data["blocs_fonctions_path"]["Libellé élément Schémathèque"] != chosen
         ]
-        
-        # Ajouter la nouvelle entrée fusionnée
-        if all_codes:  # Ne pas ajouter si vide
-            for code in all_codes:
-                intitule = data["element_path"].loc[
-                    data["element_path"]["ELEMENT"] == code, "INTITULE"
-                ].values[0] if code in data["element_path"]["ELEMENT"].values else ""
-                
-                data["blocs_fonctions_path"] = pd.concat([
-                    data["blocs_fonctions_path"],
-                    pd.DataFrame([{
-                        "Code élément": code,
-                        "Libellé élément Schémathèque": chosen,
-                        "Libéllé Retenu": f"FONCTION {intitule}" if intitule else ""
-                    }])
-                ], ignore_index=True)
-            
-            data["blocs_fonctions_path"].to_excel(
-                os.path.join(data["base_dir"], "data/blocs_fonctions.xlsx"), 
-                index=False
-            )
-            st.success(f"🔗 Associations mises à jour pour le bloc: {chosen}")
-            st.rerun()
-        else:
-            st.info("Aucune association à enregistrer")
 
+        new_entries = []
+        for code in all_codes:
+            intitule = element_dict.get(code, "")
+            new_entries.append({
+                "Code élément": code,
+                "Libellé élément Schémathèque": chosen,
+                "Libéllé Retenu": f"FONCTION {intitule}" if intitule else ""
+            })
+
+        data["blocs_fonctions_path"] = pd.concat([
+            data["blocs_fonctions_path"],
+            pd.DataFrame(new_entries)
+        ], ignore_index=True)
+
+        data["blocs_fonctions_path"].to_excel(
+            os.path.join(data["base_dir"], "data/blocs_fonctions.xlsx"),
+            index=False
+        )
+
+        st.success(f"🔗 Associations mises à jour pour le bloc : {chosen}")
+        st.rerun()
 
 # ==============================================================================
 # 8. Mode "Gestion Élément"
 # ==============================================================================
-def show_element_manager(block_codes, clean2blocks, data):
+def show_element_manager(block_codes, clean2blocks, data, project):
+    uet_projet = " ".join(["UET", project])
     st.header("Choix de l'élément")
     selected_elem = st.selectbox(
         "Choisir un code élément:", 
@@ -1004,34 +1207,63 @@ def show_element_manager(block_codes, clean2blocks, data):
     # 1. Vérification et affichage des blocs associés
     associated_blocs = data["blocs_fonctions_path"][data["blocs_fonctions_path"]["Code élément"] == selected_elem]
     
-    if associated_blocs.empty:
-        st.warning("Cet élément n'est associé à aucun bloc")
-        return
+    # Afficher les blocs associés avec option de détachement
+    with st.expander(f"📌 Blocs associés ({len(associated_blocs)} blocs)"):
+        if associated_blocs.empty:
+            st.warning("Cet élément n'est associé à aucun bloc")
+        else:
+            for _, row in associated_blocs.iterrows():
+                cols = st.columns([4, 1])
+                with cols[0]:
+                    st.write(f"- {row['Libellé élément Schémathèque']}")
+                with cols[1]:
+                    if st.button("❌ Détacher", key=f"detach_{row['Libellé élément Schémathèque']}"):
+                        # Supprimer l'association
+                        data["blocs_fonctions_path"] = data["blocs_fonctions_path"][
+                            ~((data["blocs_fonctions_path"]["Code élément"] == selected_elem) & 
+                            (data["blocs_fonctions_path"]["Libellé élément Schémathèque"] == row['Libellé élément Schémathèque']))
+                        ]
+                        data["blocs_fonctions_path"].to_excel(
+                            os.path.join(data["base_dir"], "data/blocs_fonctions.xlsx"),
+                            index=False
+                        )
+                        st.success("Bloc détaché !")
+                        st.rerun()
+        
+    # 2. Ajout manuel de blocs
+    st.subheader("➕ Ajouter un bloc")
+    # Liste des titres de tous les blocs
+    all_block_titles = [b["title"] for b in block_codes]
+    # Titres déjà associés à cet élément
+    associated_titles = associated_blocs["Libellé élément Schémathèque"].tolist()
+    # Titres disponibles (non associés)
+    available_blocks = [t for t in all_block_titles if t not in associated_titles]
     
-    with st.expander("### 📌 Blocs associés"):
-        # Filtrer les blocs associés qui existent dans block_codes
-        valid_blocs = [
-            bloc_title for bloc_title in associated_blocs["Libellé élément Schémathèque"].unique() 
-            if any(b["title"] == bloc_title for b in block_codes)
-        ]
-        
-        if not valid_blocs:
-            st.warning("Aucun bloc présent dans la schémathèque chargée à afficher")
-            return
-        
-        selected_bloc = st.selectbox(
-            "Choisir un bloc à explorer:",
-            valid_blocs,
-            format_func=lambda x: f"{x}",
-            key="bloc_selector"
+    selected_block = st.selectbox(
+        "Choisir un bloc à associer",
+        available_blocks,
+        key="add_block_select"
+    )
+    
+    if st.button("🔗 Associer ce bloc", key="add_block_btn"):
+        # Ajouter l'association
+        new_row = {
+            "Code élément": selected_elem,
+            "Libellé élément Schémathèque": selected_block,
+            "Libéllé Retenu": f"FONCTION {data['element_path'][data['element_path']['ELEMENT'] == selected_elem]['INTITULE'].values[0]}"
+        }
+        data["blocs_fonctions_path"] = pd.concat([
+            data["blocs_fonctions_path"],
+            pd.DataFrame([new_row])
+        ], ignore_index=True)
+        data["blocs_fonctions_path"].to_excel(
+            os.path.join(data["base_dir"], f"data/blocs_fonctions_{project}.xlsx"),
+            index=False
         )
-        
-        # Affichage du contenu du bloc
-        bloc_obj = next(b for b in block_codes if b["title"] == selected_bloc)
-        st.markdown(f"**Contenu du bloc {selected_bloc}**")
-        st.dataframe(bloc_obj["df"])
+        st.success("Bloc associé avec succès !")
+        st.rerun()
     
-    # 2. Gestion des localisations
+    # 3. Gestion des localisations
     loca_file = os.path.join(data["localisation_folder"], f"{selected_elem}_localisations.xlsx")
     
     # Initialisation si fichier manquant
@@ -1074,7 +1306,7 @@ def show_element_manager(block_codes, clean2blocks, data):
             st.rerun()
         return
     
-    # 3. Extraction des localisations des blocs
+    # 4. Extraction des localisations des blocs
     locas_schema = set()
     schema_labels = {}
     for bloc_title in associated_blocs["Libellé élément Schémathèque"]:
@@ -1085,15 +1317,67 @@ def show_element_manager(block_codes, clean2blocks, data):
                 locas_schema.add(code)
                 schema_labels[code] = row["label"]
     
-    # 4. Gestion des UET manquantes
+
+
+    # 5. Gestion des UET manquantes
     filtered_corres = data["corres_path"][data["corres_path"]["Code Loca"].isin(df_loca["LOCALISATION"].astype(str))]
     missing_uet = [loc for loc in df_loca["LOCALISATION"].astype(str).unique() 
                   if loc not in filtered_corres["Code Loca"].values]
     
+    uet_projet = " ".join(["UET", project])  # Ex: "UET X8310"
+
+    # Identifier les localisations sans UET pour ce projet spécifique
+    missing_uet = []
+    configured_locs = []
+
+    for loc in df_loca["LOCALISATION"].astype(str).unique():
+        loc_row = data["corres_path"][data["corres_path"]["Code Loca"].astype(str) == loc]
+        
+        if not loc_row.empty and uet_projet in loc_row.columns:
+            uet_value = loc_row[uet_projet].values[0]
+            if pd.notna(uet_value) and str(uet_value).strip() and uet_value != "nan":
+                configured_locs.append(loc)
+            else:
+                missing_uet.append(loc)
+        else:
+            missing_uet.append(loc)
+
+
+    # AFFICHAGE DES LOCALISATIONS (toujours visible)
+    st.markdown("#### 🗺 Localisations des blocs")
+    arbo_df = pd.DataFrame([(loc, schema_labels.get(loc, "")) for loc in sorted(locas_schema)],
+                        columns=["LOCALISATION", "LABEL"])
+    arbo_df["STATUT"] = arbo_df["LOCALISATION"].apply(
+        lambda x: "✅ Configuré" if x in configured_locs else "❌ UET manquante")
+    st.dataframe(arbo_df)
+
+    # SECTION CONFIGURATION UET (seulement si des UET manquent)
     if missing_uet:
         with st.expander("⚠️ Configuration requise - UET manquantes", expanded=True):
-            st.warning(f"{len(missing_uet)} localisations nécessitent une UET")
+            st.warning(f"{len(missing_uet)} localisations nécessitent une UET pour le projet {project}")
             
+            # Création d'un dictionnaire pour stocker les suggestions sélectionnées
+            if 'selected_suggestions' not in st.session_state:
+                st.session_state.selected_suggestions = {}
+            
+            # Première passe pour afficher les suggestions et collecter les choix
+            suggestions = {}
+            for loc in missing_uet:
+                loc_row = data["corres_path"][data["corres_path"]["Code Loca"].astype(str) == loc]
+                if not loc_row.empty:
+                    uet_cols = [c for c in data["corres_path"].columns if c.startswith("UET ") and c != uet_projet]
+                    loc_suggestions = []
+                    for col in uet_cols:
+                        val = loc_row[col].values[0]
+                        if pd.notna(val) and str(val).strip():
+                            project_name = col.replace("UET ", "")
+                            loc_suggestions.append((project_name, str(val).strip()))
+                    if loc_suggestions:
+                        suggestions[loc] = loc_suggestions
+            
+
+            
+            # Formulaire principal pour la saisie
             uet_mapping = {}
             with st.form(key="uet_form"):
                 for loc in missing_uet:
@@ -1101,55 +1385,73 @@ def show_element_manager(block_codes, clean2blocks, data):
                     with cols[0]:
                         st.text_input("Localisation", value=loc, disabled=True, key=f"disp_{loc}")
                     with cols[1]:
-                        st.text_input("UET", key=f"uet_{loc}", placeholder="Ex: RET")
+                        # Pré-remplir avec la suggestion si disponible
+                        default_value = st.session_state.selected_suggestions.get(loc, "")
+                        uet_input = st.text_input(
+                            "UET", 
+                            value=default_value,
+                            key=f"uet_{loc}", 
+                            placeholder="Ex: RET"
+                        )
                     with cols[2]:
-                        st.caption(f"Label: {schema_labels.get(loc, 'Inconnu')}")
+                        current_loc_row = data["corres_path"][data["corres_path"]["Code Loca"].astype(str) == loc]
+                        label = current_loc_row["Libellé Long Loca"].values[0] if not current_loc_row.empty else schema_labels.get(loc, "Inconnu")
+                        st.caption(f"Label: {label}")            # Afficher les suggestions sous forme de selectbox
+
+                for loc, loc_suggestions in suggestions.items():
+                    selected = st.selectbox(
+                        f"Suggestions pour {loc}",
+                        options=["-- Choisir une suggestion --"] + [f"{val} (depuis {proj})" for proj, val in loc_suggestions],
+                        key=f"suggest_select_{loc}"
+                    )
+                    if selected != "-- Choisir une suggestion --":
+                        selected_val = selected.split(" (depuis ")[0]
+                        st.session_state.selected_suggestions[loc] = selected_val
+
+
                 
-                cols = st.columns([1, 1, 3])
-                with cols[0]:
-                    if st.form_submit_button("💾 Enregistrer", type="primary"):
-                        uet_mapping = {
-                            loc: st.session_state[f"uet_{loc}"]
-                            for loc in missing_uet
-                            if st.session_state.get(f"uet_{loc}")
-                        }
-                        
-                        if uet_mapping:
-                            new_entries = []
-                            for loc, uet in uet_mapping.items():
-                                new_entries.append({
+                if st.form_submit_button("💾 Enregistrer les UET", type="primary"):
+                    uet_mapping = {
+                        loc: st.session_state[f"uet_{loc}"]
+                        for loc in missing_uet
+                        if st.session_state.get(f"uet_{loc}")
+                    }
+                    
+                    if uet_mapping:
+                        # Mise à jour du dataframe de correspondances
+                        for loc, uet in uet_mapping.items():
+                            mask = data["corres_path"]["Code Loca"].astype(str) == loc
+                            
+                            if mask.any():  # Mise à jour
+                                data["corres_path"].loc[mask, uet_projet] = uet
+                            else:  # Création
+                                new_row = {
                                     "Code Loca": loc,
-                                    "UET": uet,
+                                    uet_projet: uet,
+                                    "Libellé Long Loca": schema_labels.get(loc, "Inconnu"),
                                     "Famille": "",
-                                    "Sous-famille": "",
-                                    "Libellé Long Loca": schema_labels.get(loc, "Inconnu")
-                                })
-                            
-                            data["corres_path"] = pd.concat([
-                                data["corres_path"],
-                                pd.DataFrame(new_entries)
-                            ]).drop_duplicates(subset=["Code Loca"], keep="last")
-                            
-                            data["corres_path"].to_excel(
-                                os.path.join(data["base_dir"], "data/localisation_uet.xlsx"),
-                                index=False
-                            )
-                            st.success("UET enregistrées avec succès !")
-                            st.rerun()
-                        else:
-                            st.warning("Aucune UET valide à enregistrer")
-                
-                st.info("Les localisations avec des UET manquantes ne seront pas incluses dans l'export")
+                                    "Sous-famille": ""
+                                }
+                                data["corres_path"] = pd.concat([
+                                    data["corres_path"],
+                                    pd.DataFrame([new_row])
+                                ], ignore_index=True)
+                        
+                        # Sauvegarde
+                        data["corres_path"].to_excel(
+                            os.path.join(data["base_dir"], "data/localisation_uet.xlsx"),
+                            index=False
+                        )
+                        st.success("UET enregistrées avec succès !")
+                        st.rerun()
+                    else:
+                        st.warning("Aucune UET valide à enregistrer")
 
     st.markdown("---")
 
-    # =============================================================================== #
-    # ======================== AJOUT MANUEL DE LOCALISATION ========================= #
-    # =============================================================================== #
-    
 
+    # 6. Ajout manuel de localisations
     with st.expander("📍 Ajouter une localisation à cet élément"):
-        
         add_mode = st.radio("Mode d'ajout :",
                         ["Sélectionner une localisation existante", "Créer une nouvelle localisation"],
                         horizontal=True,
@@ -1172,7 +1474,7 @@ def show_element_manager(block_codes, clean2blocks, data):
                     **Détails de la localisation :**
                     - **Code :** {loc_info['Code Loca']}
                     - **Libellé :** {loc_info['Libellé Long Loca']}
-                    - **UET associée :** {loc_info['UET']}
+                    - **UET associée :** {loc_info[uet_projet]}
                 """)
                 
                 if st.button("➕ Ajouter cette localisation à l'élément", key="add_existing_loc_btn"):
@@ -1200,7 +1502,7 @@ def show_element_manager(block_codes, clean2blocks, data):
                 with col1:
                     new_code = st.text_input("Code localisation*", help="Doit être unique", key="new_loc_code")
                 with col2:
-                    new_uet = st.text_input("UET associée*", key="new_loc_uet")
+                    new_uet = st.text_input(f"{uet_projet} associée*", key="new_loc_uet")
                 
                 new_label = st.text_input("Libellé complet*", key="new_loc_label")
                 
@@ -1214,7 +1516,7 @@ def show_element_manager(block_codes, clean2blocks, data):
                         new_corres_row = {
                             "Code Loca": new_code,
                             "Libellé Long Loca": new_label,
-                            "UET": new_uet,
+                            uet_projet: new_uet,
                             "Famille": "",
                             "Sous-famille": ""
                         }
@@ -1240,11 +1542,9 @@ def show_element_manager(block_codes, clean2blocks, data):
                         except Exception as e:
                             st.error(f"Erreur lors de la sauvegarde : {str(e)}")
 
-
-            
     st.markdown("---")
 
-    # ========== SECTION SUPPRESSION LOCALISATION ==========
+    # 7. Suppression de localisations
     with st.expander("🗑️ Supprimer une localisation de cet élément"):
 
         if not df_loca.empty:
@@ -1267,14 +1567,22 @@ def show_element_manager(block_codes, clean2blocks, data):
         else:
             st.warning("Aucune localisation à supprimer pour cet élément.")
 
-    # 5. Sélection du mode d'affichage
+    # 8. Synchronisation et affichage
     st.markdown("---")
     view_mode = st.radio(
         "Mode d'affichage:",
-        ["Arborescence schémathèque", "Localisations configurées"],
+        ["Version actuelle", "Dernière extraction"],
         horizontal=True,
         key="view_mode"
     )
+
+
+    # Calculer l'arborescence actuelle
+    last_genereted = generate_excel_structure(selected_elem, pd.DataFrame(list(locas_schema), columns=["LOCALISATION"]) , filtered_corres, 
+                                      data["incident_path"], data["template_path"], data["base_dir"], project)
+    current_arbo = compute_current_arbo(selected_elem, pd.DataFrame(list(locas_schema), columns=["LOCALISATION"]) , filtered_corres, 
+                                      data["incident_path"], data["template_path"], project)
+
     
     if st.button("🔄 Synchroniser avec les blocs associés", 
                 help="Mettre à jour les localisations selon la schémathèque",
@@ -1301,31 +1609,45 @@ def show_element_manager(block_codes, clean2blocks, data):
         df_loca_final.to_excel(loca_file, index=False)
         st.success(f"Synchronisation effectuée : {len(locas_from_blocks)} localisations mises à jour")
         st.rerun()
-
-    # 7. Affichage des données
-    st.markdown("### 📊 Données actuelles")
     
-    if view_mode == "Arborescence schémathèque":
+    
+    # 9. Affichage des données
+    st.markdown("### 📊 Données actuelles")
+
+    if view_mode == "Version actuelle":
         st.markdown("#### 🗺 Localisations des blocs")
         arbo_df = pd.DataFrame([(loc, schema_labels.get(loc, "")) for loc in sorted(locas_schema)],
-                             columns=["LOCALISATION", "LABEL"])
+                            columns=["LOCALISATION", "LABEL"])
         arbo_df["STATUT"] = arbo_df["LOCALISATION"].apply(
             lambda x: "✅ Configuré" if str(x) in filtered_corres["Code Loca"].values else "❌ UET manquante")
         st.dataframe(arbo_df)
-    else:
-        st.markdown("#### 📝 Localisations configurées")
-        st.dataframe(df_loca)
-    
-    # 8. Génération Excel avec avertissement
+        
+    else:  # Dernière extraction
+        extractions_dir = os.path.join(data["base_dir"], "Extractions")
+        output_path = os.path.join(extractions_dir, f"{selected_elem}_Arborescence_GRET.xlsx")
+        
+        if os.path.exists(output_path):
+            df_last = pd.read_excel(output_path)
+            st.info(f"Dernière extraction enregistrée : {os.path.basename(output_path)}")
+            st.dataframe(df_last)
+        else:
+            st.warning("Aucune extraction précédente disponible pour cet élément")    
+
+    # 10. Génération Excel
     st.markdown("---")
     st.markdown("### 🧾 Génération de l'arborescence")
     if missing_uet:
         st.warning(f"Attention: {len(missing_uet)} localisations sans UET ne seront pas incluses")
+
+    if view_mode == "Version actuelle":
+        st.dataframe((current_arbo))
+    else : 
+        st.dataframe(pd.read_excel(last_genereted))
     
-    generate_excel_structure(selected_elem, df_loca, filtered_corres, 
-                           data["incident_path"], data["template_path"], data["base_dir"])
     
-def generate_excel_structure(selected_elem, df_loca, df_corres, df_incidents, template, base_dir):
+    
+def generate_excel_structure(selected_elem, df_loca, df_corres, df_incidents, template, base_dir, project):
+    uet_projet = " ".join(["UET", project])
     template_df = template
     existing_df = template_df.copy()
     
@@ -1340,7 +1662,7 @@ def generate_excel_structure(selected_elem, df_loca, df_corres, df_incidents, te
             continue
             
         for loca in df_loca["LOCALISATION"].astype(str).unique():
-            uets = df_corres[df_corres["Code Loca"].astype(str).str.strip() == loca]["UET"].unique()
+            uets = df_corres[df_corres["Code Loca"].astype(str).str.strip() == loca][uet_projet].unique()
             
             for uet in uets:
                 already = (
@@ -1376,7 +1698,7 @@ def generate_excel_structure(selected_elem, df_loca, df_corres, df_incidents, te
                     })
                 to_drop.extend(existing_df[sub_no_inc].index.tolist())
 
-    # 8) Ajouter incidents exceptionnels automatiquement
+    # Ajouter incidents exceptionnels automatiquement
     auto_incidents = [
         {"ELEMENT": selected_elem, "INCIDENT": code, "UET imputée": ("RET" if code != "DENR" else "DIV"), "LOCALISATION": "", 
         "SECTEUR": "M", "CODE RETOUCHE": "RELE", "TPS RETOUCHE": "0", "EFFET CLIENT": "0", "REGROUPEMENT": "ELEC", "METIER": "ELECTRICIT"}
@@ -1385,42 +1707,293 @@ def generate_excel_structure(selected_elem, df_loca, df_corres, df_incidents, te
 
     df_auto = pd.DataFrame(auto_incidents)
 
-    # 9) Assemblage final du DataFrame
+    # Assemblage final du DataFrame
     existing_df = pd.concat([existing_df, df_auto], ignore_index=True) if 'df_auto' in locals() else existing_df
     existing_df = existing_df.drop(index=list(set(to_drop))).drop_duplicates()
     new_lines = pd.DataFrame(rows).drop_duplicates()
     current_df = pd.concat([new_lines, existing_df], axis=0, ignore_index=True).drop_duplicates()
 
-    # 10) Filtrage final
+    # Filtrage final
     valid_inc = list(incident_codes) + exceptions
     current_df = current_df[
         (current_df["INCIDENT"].astype(str).str.strip().isin(valid_inc)) &
         ((current_df["LOCALISATION"].astype(str).str.strip().notna()) | (current_df["INCIDENT"].astype(str).str.strip().isin(exceptions)))
     ]
 
-    # 11) Export et affichage
+    # Créer le dossier Extractions s'il n'existe pas
+    extractions_dir = os.path.join(base_dir, "Extractions")
+    os.makedirs(extractions_dir, exist_ok=True)
+    output_path = os.path.join(extractions_dir, f"{selected_elem}_Arborescence_GRET.xlsx")
+    
+    # Export et affichage
     output = BytesIO()
     current_df.to_excel(output, index=False)
     output.seek(0)
-
-    st.subheader("🧾 Aperçu du fichier actuel")
-    st.success("✅ Arborescence mise à jour automatiquement")
-    st.dataframe(current_df)
-
-    st.download_button(
-        label="⬇️ Télécharger le fichier Excel généré",
-        data=output,
-        file_name=f"{selected_elem}_Arborescence_GRET.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    
+    # st.subheader("🧾 Aperçu du fichier actuel")
+    # st.success("✅ Arborescence mise à jour automatiquement")
+    # st.dataframe(current_df)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        # Bouton pour valider et enregistrer dans Extractions
+        if st.button("💾 Valider les modifications", 
+                    help="Enregistre définitivement dans le dossier Extractions",
+                    type="primary"):
+            current_df.to_excel(output_path, index=False)
+            st.success(f"✅ Fichier enregistré dans : {output_path}")
+            st.rerun()
+    
+    with col2:
+        # Bouton de téléchargement
+        st.download_button(
+            label="⬇️ Télécharger le fichier Excel",
+            data=output,
+            file_name=f"{selected_elem}_Arborescence_GRET.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
     st.markdown("---")
+    return output_path
 
 
+def compute_current_arbo(selected_elem, df_loca, df_corres, df_incidents, template, project):
+    uet_projet = " ".join(["UET", project])
+    template_df = template
+    existing_df = template_df.copy()
     
+    rows = []
+    to_drop = []
+    exceptions = ["SK01", "RK01", "BK01", "MK01", "CK01", "TK01", "1791", "7935"]
+    incident_codes = df_incidents["Code Incident"].dropna().unique()
+    
+    # Construire les nouvelles lignes
+    for inc in incident_codes:
+        if inc in exceptions:
+            continue
+            
+        for loca in df_loca["LOCALISATION"].astype(str).unique():
+            uets = df_corres[df_corres["Code Loca"].astype(str).str.strip() == loca][uet_projet].unique()
+            
+            for uet in uets:
+                already = (
+                    (existing_df["INCIDENT"].astype(str).str.strip() == inc) &
+                    (existing_df["LOCALISATION"].astype(str).str.strip() == loca) &
+                    (existing_df["UET imputée"] == uet)
+                ).any()
+                
+                sub_no_inc = (
+                    (existing_df["INCIDENT"].astype(str).str.strip() == inc) &
+                    (existing_df["LOCALISATION"].astype(str).str.strip() == loca) &
+                    (existing_df["UET imputée"] != uet)
+                )
+                
+                if not already:
+                    rows.append({
+                        "ELEMENT": selected_elem,
+                        "INCIDENT": inc,
+                        "LOCALISATION": loca,
+                        "Position I/E": None,
+                        "OBJET": None,
+                        "CRITERE": None,
+                        "ZONE": None,
+                        "UET imputée": uet,
+                        "SECTEUR": "M",
+                        "CHAINE": None,
+                        "TECHNIQUE": None,
+                        "CODE RETOUCHE": "RELE",
+                        "TPS RETOUCHE": "0",
+                        "EFFET CLIENT": "O",
+                        "REGROUPEMENT": "ELEC",
+                        "METIER": "ELECTRICIT"
+                    })
+                to_drop.extend(existing_df[sub_no_inc].index.tolist())
+
+    # Ajouter incidents exceptionnels automatiquement
+    auto_incidents = [
+        {"ELEMENT": selected_elem, "INCIDENT": code, "UET imputée": ("RET" if code != "DENR" else "DIV"), "LOCALISATION": "", 
+        "SECTEUR": "M", "CODE RETOUCHE": "RELE", "TPS RETOUCHE": "0", "EFFET CLIENT": "0", "REGROUPEMENT": "ELEC", "METIER": "ELECTRICIT"}
+        for code in exceptions
+    ]
+
+    df_auto = pd.DataFrame(auto_incidents)
+
+    # Assemblage final du DataFrame
+    existing_df = pd.concat([existing_df, df_auto], ignore_index=True) if 'df_auto' in locals() else existing_df
+    existing_df = existing_df.drop(index=list(set(to_drop))).drop_duplicates()
+    new_lines = pd.DataFrame(rows).drop_duplicates()
+    current_df = pd.concat([new_lines, existing_df], axis=0, ignore_index=True).drop_duplicates()
+
+    # Filtrage final
+    valid_inc = list(incident_codes) + exceptions
+    current_df = current_df[
+        (current_df["INCIDENT"].astype(str).str.strip().isin(valid_inc)) &
+        ((current_df["LOCALISATION"].astype(str).str.strip().notna()) | (current_df["INCIDENT"].astype(str).str.strip().isin(exceptions)))
+    ]    
+    return current_df
 
 # ==============================================================================
-# 8. Application principale
+# 9. Mode "Comparaison"
+# ==============================================================================
+def show_schema_comparison(base_dir, current_blocks):
+    st.header("🔍 Comparaison de schémathèques")
+    
+    HISTORY_DIR = os.path.join(base_dir, "schema_history")
+    index = load_index(os.path.join(HISTORY_DIR, "index.json"))
+    if not index:
+        st.warning("Aucune schémathèque historique disponible pour la comparaison.")
+        return
+    
+    schema_files = [v["filename"] for k, v in index.items()]
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Schémathèque courante")
+        st.info(f"Blocs: {len(current_blocks)}")
+        current_titles = [b["title"] for b in current_blocks]
+        
+    with col2:
+        st.subheader("Schémathèque de référence")
+        selected_file = st.selectbox(
+            "Sélectionner une schémathèque historique",
+            schema_files,
+            key="compare_select"
+        )
+        
+        if selected_file:
+            selected_path = os.path.join(HISTORY_DIR, selected_file)
+            with open(selected_path, "r", encoding="utf-8") as f:
+                schema_text = f.read()
+            reference_blocks, _ = parse_schema(schema_text)
+            reference_titles = [b["title"] for b in reference_blocks]
+            st.info(f"Blocs: {len(reference_blocks)}")
+    
+    if selected_file:
+        # Calcul des différences
+        common = set(current_titles) & set(reference_titles)
+        only_current = set(current_titles) - set(reference_titles)
+        only_reference = set(reference_titles) - set(current_titles)
+        
+        st.subheader("Résultats de la comparaison")
+        cols = st.columns(3)
+        cols[0].metric("Blocs communs", len(common))
+        cols[1].metric("Uniquement dans courant", len(only_current))
+        cols[2].metric("Uniquement dans référence", len(only_reference))
+        
+        # Détails des différences
+        with st.expander("Détails des blocs communs"):
+            st.write(list(common))
+            
+        with st.expander("Détails des blocs uniquement dans la schémathèque courante"):
+            st.write(list(only_current))
+            
+        with st.expander("Détails des blocs uniquement dans la schémathèque de référence"):
+            st.write(list(only_reference))
+        
+        # Comparaison détaillée pour un bloc spécifique
+        st.subheader("Comparaison détaillée d'un bloc")
+        selected_block = st.selectbox("Choisir un bloc commun", list(common))
+        
+        current_block = next(b for b in current_blocks if b["title"] == selected_block)
+        reference_block = next(b for b in reference_blocks if b["title"] == selected_block)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Version courante**")
+            st.dataframe(current_block["df"])
+        
+        with col2:
+            st.markdown("**Version de référence**")
+            st.dataframe(reference_block["df"])
+        
+        # Calcul des différences de contenu
+        current_content = "\n".join([f"{row['original']};{row['label']}" for _, row in current_block["df"].iterrows()])
+        reference_content = "\n".join([f"{row['original']};{row['label']}" for _, row in reference_block["df"].iterrows()])
+        
+        d = Differ()
+        diff = list(d.compare(
+            reference_content.splitlines(),
+            current_content.splitlines()
+        ))
+        
+        st.subheader("Différences de contenu")
+        for line in diff:
+            if line.startswith('+ '):
+                st.markdown(f"<div style='color:green;'>{line}</div>", unsafe_allow_html=True)
+            elif line.startswith('- '):
+                st.markdown(f"<div style='color:red;'>{line}</div>", unsafe_allow_html=True)
+            else:
+                st.write(line)
+
+# ==============================================================================
+# 10. Fonctions d'automatisation
+# ==============================================================================
+def auto_link_blocks(block_codes, data, project, reference_titles=None):
+    """
+    Crée automatiquement des liens entre blocs et fonctions
+    en utilisant la similarité structurelle.
+    """
+    project = project
+    new_links = []
+    
+    # Titres déjà présents
+    existing_titles = set(data["blocs_fonctions_path"]["Libellé élément Schémathèque"].astype(str))
+    
+    for bloc in block_codes:
+        title = bloc["title"]
+        
+        # On passe si déjà lié ou hors référence
+        if title in existing_titles or (reference_titles and title not in reference_titles):
+            continue
+        
+        # On récupère prop, score global, similar_sources et bloc_scores
+        prop, _, similar_sources, bloc_scores = propagate_to_similar(
+            title,
+            data["blocs_fonctions_path"],
+            data["base_dir"],
+            project,
+            reference_titles=reference_titles,
+            existing_functions=set()
+        )
+        
+        # Si on a des recommandations
+        if prop and "TOUTES LES FONCTIONS SIMILAIRES" in prop:
+            # On prend la première fonction proposée
+            main_function = prop["TOUTES LES FONCTIONS SIMILAIRES"][0]
+            
+            # On récupère son intitulé
+            intitule = (
+                data["element_path"]
+                    .loc[data["element_path"]["ELEMENT"] == main_function, "INTITULE"]
+                    .values
+            )
+            intitule = intitule[0] if len(intitule) else ""
+            
+            new_links.append({
+                "Code élément": main_function,
+                "Libellé élément Schémathèque": title,
+                "Libéllé Retenu": f"FONCTION {intitule}" if intitule else ""
+            })
+    
+    # Si on a créé des liens, on les ajoute puis on sauvegarde
+    if new_links:
+        data["blocs_fonctions_path"] = pd.concat([
+            data["blocs_fonctions_path"],
+            pd.DataFrame(new_links)
+        ], ignore_index=True)
+        
+        data["blocs_fonctions_path"].to_excel(
+            os.path.join(data["base_dir"], f"data/blocs_fonctions{project}.xlsx"),
+            index=False
+        )
+        return len(new_links)
+    
+    return 0
+
+
+
+# ==============================================================================
+# 11. Application principale
 # ==============================================================================
 def main():
     st.set_page_config(page_title="Mise à jour d'élément GRET", layout="wide")
@@ -1437,40 +2010,101 @@ def main():
         st.stop()
     
     base_dir = conf["base_dir"]
-    
-    # Gestion des schémathèques
-    schema_data = manage_schema_history(base_dir)
-    if schema_data:  # Vérifie si des données de schéma sont disponibles
-        schema_text, found_localisations = schema_data
-    else:
-        schema_text, found_localisations = None, {}
-    
-    # Parsing de la schémathèque
-    block_codes, clean2blocks = parse_schema(schema_text)
 
+    schema_expansion = True
+    
+    with st.sidebar.expander("**📃 Gestion Schémathèques**", expanded=schema_expansion):
+        # Gestion des schémathèques
+        sdata = manage_schema_history(base_dir)
+        if st.session_state.get("schema_data") :
+            schema_data = st.session_state.get("schema_data")
+        else :
+            schema_data = sdata
+        reference_titles = None
 
-    # Chargement des données
-    data = load_common_data(base_dir)
-    data["base_dir"] = base_dir  # Ajout du base_dir au dictionnaire data
+        # schema_data = st.session_state.get("schema_data")
+        schema_text = st.session_state.get("schema_text")
+        project = st.session_state.get("project")
+        found_localisations = st.session_state.get("found_localisations")
+        index = st.session_state.get("index")
+        
+        if schema_data:  # Vérifie si des données de schéma sont disponibles
+
+            if schema_data and len(schema_data) == 4:
+                schema_text, found_localisations, index, project = schema_data
+
+                # Sauvegarde dans session_state
+                st.session_state["schema_text"] = schema_text
+                st.session_state["project"] = project
+                st.session_state["found_localisations"] = found_localisations
+                st.session_state["index"] = index
+                st.session_state["schema_data"] = schema_data
+
+                uet = " ".join(["UET", project])
+                # Sélection de la schémathèque de référence
+                st.subheader("📌 Schémathèque de référence")
+                if index:
+                    sorted_items = sorted(index.items(), key=lambda x: x[1]["timestamp"], reverse=True)
+                    options = [v["filename"] for k, v in sorted_items]
+                    selected_reference = st.selectbox(
+                        "Choisir une schémathèque de référence",
+                        ["Aucune"] + options,
+                        key="reference_select"
+                    )
+                    
+                    if selected_reference != "Aucune":
+                        schema_expansion = False
+                        reference_path = os.path.join(base_dir, "schema_history", selected_reference)
+                        with open(reference_path, "r", encoding="utf-8") as f:
+                            reference_text = f.read()
+                        reference_blocks, _ = parse_schema(reference_text)
+                        reference_titles = {b["title"] for b in reference_blocks}
+                        st.success(f"Référence chargée: {selected_reference}")
+                        schema_expansion = False
+                else:
+                    st.info("Aucune schémathèque historique disponible")
+            else:
+                # schema_text, found_localisations = None, {}
+                st.info("Erreur de chargement dans les données du schéma")
+        
+            # Parsing de la schémathèque
+            block_codes, clean2blocks = parse_schema(schema_text) if schema_text else ([], {})
+
+            # Chargement des données
+            data = load_common_data(project, base_dir)
+            data["base_dir"] = base_dir  # Ajout du base_dir au dictionnaire data
+
+            # Bouton d'automatisation
+            if schema_text and st.button("🤖 Automatiser les liens blocs-fonctions", type="primary"):
+                with st.spinner("Création des liens en cours..."):
+                    count = auto_link_blocks(block_codes, data, project, reference_titles)
+                    st.success(f"{count} nouveaux liens créés !")
+                    # Recharger les données après modification
+                    data["blocs_fonctions_path"] = reload_dataframe(os.path.join(base_dir, f"data/blocs_fonctions_{project}.xlsx"))
+                    st.rerun()
+
 
     # Sélection du mode
     st.sidebar.markdown("---")
     mode = st.sidebar.radio(
         "Mode:",
-        ["Explorer Blocs", "Gestion Élément"],
+        ["Explorer Blocs", "Gestion Élément", "Comparaison"],
         horizontal=True
     )
-    
-    # Affichage du mode sélectionné
-    if mode == "Explorer Blocs":
-        show_block_explorer(block_codes, data)
-    else:
-        show_element_manager(block_codes, clean2blocks, data)
-    
-    # Affichage des sections de la sidebar
-    show_sidebar_sections(data, found_localisations)
-    
 
+    if schema_data:  # Vérifie si des données de schéma sont disponibles
+        if len(schema_data) == 4:
+    
+            # Affichage du mode sélectionné
+            if mode == "Explorer Blocs":
+                show_block_explorer(block_codes, data, project, reference_titles)
+            elif mode == "Gestion Élément":
+                show_element_manager(block_codes, clean2blocks, data, project)
+            elif mode == "Comparaison":
+                show_schema_comparison(base_dir, block_codes)
+            
+            # Affichage des sections de la sidebar
+            show_sidebar_sections(data, project, found_localisations)
 
 if __name__ == "__main__":
     main()
