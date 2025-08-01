@@ -2,10 +2,12 @@
 *
 * @author : Brandon C. ETOCHA
 * @update : Cette version permet une gestion des catalogues de défaillance par projet.
+* @update : Cette version permet également de générer de faire une validation des modifications en deux temps, en affichant en orange les modifications non validées.
 * @date : 23/07/2025
 *
 """
 
+import shutil
 import streamlit as st
 import pandas as pd
 import os
@@ -95,8 +97,85 @@ def ensure_blocs_fonctions_file(base_dir: str, project: str) -> str:
         df.to_excel(path, index=False)
     return path
 
+# -----------------------------------------------------------------------------
+# 1.1. Fonctions - Gestion de la copie de travail persistante
+# -----------------------------------------------------------------------------
+def ensure_working_copy(base_dir: str, project: str) -> tuple[str, str, str]:
+    """
+    Crée une copie de travail si absente.
+    Retourne les chemins : (fichier officiel, fichier de travail, backup de l'officiel)
+    """
+    official_path = os.path.join(base_dir, f"data/blocs_fonctions_{project}.xlsx")
+    working_path = os.path.join(base_dir, f"data/working_blocs_fonctions_{project}.xlsx")
+    backup_path = os.path.join(base_dir, f"data/old_blocs_fonctions_{project}.xlsx")
+
+    if not os.path.exists(working_path):
+        if os.path.exists(official_path):
+            shutil.copyfile(official_path, working_path)
+        else:
+            df = pd.DataFrame(columns=["Code élément", "Libellé élément Schémathèque", "Libéllé Retenu"])
+            df.to_excel(working_path, index=False)
+    return official_path, working_path, backup_path
+
+def valider_modifications(base_dir: str, project: str):
+    """
+    Sauvegarde l'ancien fichier officiel comme back up, puis remplace avec la version de travail et supprime la version de travail.
+    """
+    working_path = os.path.join(base_dir, f"data/working_blocs_fonctions_{project}.xlsx")
+
+    official, working, backup = ensure_working_copy(base_dir, project)
+    if os.path.exists(official):
+        shutil.copyfile(official, backup)
+    else:
+        st.info("ℹ️ Aucun fichier officiel à sauvegarder. Création d'une première version.")
+
+    if os.path.exists(working):
+        shutil.copyfile(working, official)
+        os.remove(working_path)
+        st.success("✅ Modifications validées et version précédente sauvegardée.")
+        rerun()
+    else:
+        st.warning("⚠️ Aucune version de travail trouvée à valider.")
+
+def revert_working_copy(base_dir: str, project: str):
+    """
+    Réinitialise la version de travail à partir de la version officielle,
+    sans modifier l'officiel ni supprimer définitivement les données.
+    """
+    official_path = os.path.join(base_dir, f"data/blocs_fonctions_{project}.xlsx")
+    working_path = os.path.join(base_dir, f"data/working_blocs_fonctions_{project}.xlsx")
+
+    if os.path.exists(official_path):
+        shutil.copy2(official_path, working_path)
+        st.info("🔄 Version de travail réinitialisée à partir de la version officielle.")
+        rerun()
+    else:
+        st.warning("❌ Version officielle introuvable, impossible de réinitialiser.")
+
+
+
+def get_bloc_status(title: str, official_df: pd.DataFrame, working_df: pd.DataFrame) -> str:
+    """
+    Détermine si un bloc est :
+    - green (identique entre fichiers)
+    - orange (présent mais différent dans working)
+    - red (absent)
+    """
+    off = official_df[official_df["Libellé élément Schémathèque"] == title]["Code élément"].astype(str).sort_values().tolist()
+    work = working_df[working_df["Libellé élément Schémathèque"] == title]["Code élément"].astype(str).sort_values().tolist()
+
+    if off and work:
+        return "green"
+    elif off and not work:
+        return "orange"
+    elif work and not off: 
+        return "orange"
+    else :
+        return "red"
+
+
 # ============================================================================== 
-# 1. Fonctions de recommandation enrichies
+# 1.2. Fonctions - Recommandations
 # ============================================================================== 
 def charger_correspondances_fonctions(path="correspondances_fonctions.txt"):
     mapping = {}
@@ -694,18 +773,22 @@ def parse_schema(schema_text: str) -> tuple[list[dict], dict]:
 # 5. Chargement des données
 # ==============================================================================
 def load_common_data(project, base_dir: str):
-    # Vérifie/crée le fichier blocs_fonctions si nécessaire
-    blocs_path = ensure_blocs_fonctions_file(base_dir, project)
-    
+
+    official_blocs, working_blocs, backup_blocs = ensure_working_copy(base_dir, project)
+
+
+
     data_paths = {
         "incident_path": os.path.join(base_dir, "data/incidents.xlsx"),
         "element_path": os.path.join(base_dir, "data/elements.xlsx"),
         "corres_path": os.path.join(base_dir, "data/localisation_uet.xlsx"),
-        "blocs_fonctions_path": blocs_path,
+        "official_blocs_path": official_blocs,
+        "backup_blocs_path": backup_blocs,
+        "blocs_fonctions_path": working_blocs,
         "template_path": os.path.join(base_dir, "data/template.xlsx"),
         "localisation_folder": os.path.join(base_dir, f"data/localisations_{project}")
     }
-    
+
     data = {}
     for name, path in data_paths.items():
         if "folder" in name:
@@ -713,12 +796,11 @@ def load_common_data(project, base_dir: str):
             data[name] = path
         else:
             data[name] = reload_dataframe(path)
-    
-    # Nettoyage des dataframes
-    for df_name in ["incident_path", "element_path", "corres_path", "blocs_fonctions_path"]:
+
+    for df_name in ["incident_path", "element_path", "corres_path", "blocs_fonctions_path", "official_blocs_path"]:
         if isinstance(data[df_name], pd.DataFrame):
             data[df_name] = clean_dataframe(data[df_name])
-    
+
     return data
 
 # ==============================================================================
@@ -964,12 +1046,20 @@ def show_block_explorer(block_codes, data, project, reference_titles=None):
 
     project = project
     st.subheader("🔍 Explorer les blocs de la schémathèque")
+    col_val, col_reset = st.columns(2)
+    with col_val:
+        if st.button("✅ Valider les modifications"):
+            valider_modifications(data["base_dir"], project)
+
+    with col_reset:
+        if st.button("🔄 Réinitialiser la version de travail"):
+            revert_working_copy(data["base_dir"], project)
 
     mapping = charger_correspondances_fonctions()
     all_titles = [b["title"] for b in block_codes]
     current_titles = set(all_titles)
     blocs_rattaches = set(data["blocs_fonctions_path"]["Libellé élément Schémathèque"].astype(str).unique())
-    
+
     nb_total = len(block_codes)
     nb_non_rattaches = len(current_titles - blocs_rattaches)
 
@@ -978,28 +1068,29 @@ def show_block_explorer(block_codes, data, project, reference_titles=None):
         - Nouveaux blocs : `{nb_non_rattaches}`
     """)
 
-    # Préparation affichage associations
     element_dict = dict(zip(data["element_path"]["ELEMENT"], data["element_path"]["INTITULE"]))
-    df_display = data["blocs_fonctions_path"].copy()
+    df_display = data["official_blocs_path"].copy()
     df_display["FONCTIONS"] = df_display.apply(
         lambda row: f"{row['Code élément']} ({element_dict.get(row['Code élément'], '?')}) - {row['Libéllé Retenu']}",
         axis=1
     )
 
-    with st.expander("🔍 Voir les associations Bloc - Fonction(s) existantes"):
+    with st.expander("🔍 Voir les associations Bloc - Fonction(s) existantes et validées"):
         st.dataframe(df_display[["Libellé élément Schémathèque", "FONCTIONS"]].rename(
             columns={"Libellé élément Schémathèque": "BLOC"}),
             height=400
         )
 
-    # Filtrage des blocs selon leur rattachement
-    bloc_status = {title: title in blocs_rattaches for title in all_titles}
-    filter_type = st.radio("Filtrer les blocs :", ["Tous", "Avec fonctions", "Sans fonctions"], horizontal=True, key="bloc_filter")
+    bloc_status = {title: get_bloc_status(title, data["official_blocs_path"], data["blocs_fonctions_path"]) for title in all_titles}
+    
+    filter_type = st.radio("Filtrer les blocs :", ["Tous", "Avec fonctions", "Sans fonctions", "Modifiés"], horizontal=True, key="bloc_filter")
 
     if filter_type == "Avec fonctions":
-        filtered_titles = [t for t in all_titles if bloc_status[t]]
+        filtered_titles = [t for t in all_titles if bloc_status[t] in ["green", "orange"]]
     elif filter_type == "Sans fonctions":
-        filtered_titles = [t for t in all_titles if not bloc_status[t]]
+        filtered_titles = [t for t in all_titles if bloc_status[t] == "red"]
+    elif filter_type == "Modifiés":
+        filtered_titles = [t for t in all_titles if bloc_status[t] == "orange"]
     else:
         filtered_titles = all_titles
 
@@ -1008,7 +1099,8 @@ def show_block_explorer(block_codes, data, project, reference_titles=None):
     chosen = st.selectbox(
         "Choisir un bloc à visualiser :", 
         filtered_titles, 
-        format_func=lambda x: f"🟢 {x}" if bloc_status[x] else f"🔴 {x} (Nouveau)",
+        format_func=lambda x: f"🟢 {x}" if bloc_status[x]=="green" else f"🟠 {x}" if bloc_status[x]=="orange" else f"🔴 {x} (Nouveau)",
+        index=0 if filtered_titles else None,
         key="explore_blk_select"
     )
 
@@ -1019,7 +1111,6 @@ def show_block_explorer(block_codes, data, project, reference_titles=None):
 
     st.dataframe(blk_obj["df"])
 
-    # Fonctions déjà rattachées
     exist = data["blocs_fonctions_path"].loc[
         data["blocs_fonctions_path"]["Libellé élément Schémathèque"] == chosen,
         "Code élément"
@@ -1063,7 +1154,7 @@ def show_block_explorer(block_codes, data, project, reference_titles=None):
                 ]
 
             data["blocs_fonctions_path"].to_excel(
-                os.path.join(data["base_dir"], f"data/blocs_fonctions_{project}.xlsx"),
+                os.path.join(data["base_dir"], f"data/working_blocs_fonctions_{project}.xlsx"),
                 index=False
             )
 
@@ -1072,7 +1163,6 @@ def show_block_explorer(block_codes, data, project, reference_titles=None):
 
     existing_functions = set(exist)
 
-    # RECOMMANDATIONS
     st.markdown("## 🔎 Recommandations")
 
     with st.expander("🔍 Par mots-clés", expanded=True):
@@ -1082,7 +1172,6 @@ def show_block_explorer(block_codes, data, project, reference_titles=None):
         sem = recommander_par_intitule(chosen, data["element_path"], threshold=0.4)
 
     with st.expander("🔄 Par similarité structurelle", expanded=True):
-        # Appel mis à jour pour récupérer aussi les scores par bloc
         prop, best_score, similar_sources, bloc_scores = propagate_to_similar(
             chosen,
             data["blocs_fonctions_path"],
@@ -1097,10 +1186,8 @@ def show_block_explorer(block_codes, data, project, reference_titles=None):
             st.markdown(f"Bloc sélectionné : `{chosen}`")
             st.markdown("### 🔄 Blocs similaires (seuil ≥ 87,5 %)")
 
-            # Nombre de blocs similaires identifiés
             st.metric("Blocs similaires trouvés", len(similar_sources))
 
-            # Pour chaque bloc similaire, trié par score décroissant
             for bloc_sim, fonctions in sorted(
                 similar_sources.items(),
                 key=lambda item: bloc_scores.get(item[0], 0.0),
@@ -1114,7 +1201,6 @@ def show_block_explorer(block_codes, data, project, reference_titles=None):
                     st.markdown(f"- `{fct}` — {libelle}")
                 st.markdown("---")
 
-            # Tableau interactif récapitulatif
             table_data = []
             for bloc_sim, fonctions in similar_sources.items():
                 for fct in fonctions:
@@ -1134,7 +1220,6 @@ def show_block_explorer(block_codes, data, project, reference_titles=None):
         else:
             st.warning("Aucune fonction similaire trouvée.")
 
-    # ENREGISTREMENT DES NOUVELLES ASSOCIATIONS
     st.markdown("## 🔗 Ajouter des associations")
 
     elements = data["element_path"].dropna(subset=["ELEMENT", "INTITULE"])
@@ -1153,18 +1238,18 @@ def show_block_explorer(block_codes, data, project, reference_titles=None):
     )
 
     selected_codes = [val for label, val in options if label in selected_labels]
-    selected_codes = list(dict.fromkeys(selected_codes))  # Éliminer doublons
+    selected_codes = list(dict.fromkeys(selected_codes))
 
-    if st.button("✅ Enregistrer les associations", key=f"save_{chosen}"):
-        existing_codes = data["blocs_fonctions_path"].loc[
-            data["blocs_fonctions_path"]["Libellé élément Schémathèque"] == chosen,
-            "Code élément"
-        ].tolist()
+    if st.button("✅ Associer les Fonctions", key=f"save_{chosen}"):
+        existing_df = data["blocs_fonctions_path"]
+        other_blocs_df = existing_df[existing_df["Libellé élément Schémathèque"] != chosen]
+        chosen_df = existing_df[existing_df["Libellé élément Schémathèque"] == chosen]
 
+        # Codes déjà présents pour ce bloc
+        existing_codes = chosen_df["Code élément"].dropna().astype(str).tolist()
+
+        # Fusion des anciens et nouveaux codes
         all_codes = list(set(existing_codes + selected_codes))
-        data["blocs_fonctions_path"] = data["blocs_fonctions_path"][
-            data["blocs_fonctions_path"]["Libellé élément Schémathèque"] != chosen
-        ]
 
         new_entries = []
         for code in all_codes:
@@ -1175,13 +1260,14 @@ def show_block_explorer(block_codes, data, project, reference_titles=None):
                 "Libéllé Retenu": f"FONCTION {intitule}" if intitule else ""
             })
 
-        data["blocs_fonctions_path"] = pd.concat([
-            data["blocs_fonctions_path"],
-            pd.DataFrame(new_entries)
-        ], ignore_index=True)
+        # Concat des anciens + nouveaux (remplacé uniquement pour ce bloc)
+        updated_df = pd.concat([other_blocs_df, pd.DataFrame(new_entries)], ignore_index=True)
 
-        data["blocs_fonctions_path"].to_excel(
-            os.path.join(data["base_dir"], "data/blocs_fonctions.xlsx"),
+        data["blocs_fonctions_path"] = updated_df
+
+        # Sauvegarde dans le fichier de travail (et non le officiel !)
+        updated_df.to_excel(
+            os.path.join(data["base_dir"], f"data/working_blocs_fonctions_{project}.xlsx"),
             index=False
         )
 
