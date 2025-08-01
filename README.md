@@ -2,7 +2,7 @@
 
 **Offline Streamlit App to Semi-Automatically Update Automotive Failure Catalogs**
 
-assets/GMA_visuel_exploration_blocs.png
+./assets/GMA_visuel_exploration_blocs.png
 
 ## 🔍 Overview
 
@@ -26,15 +26,7 @@ The tool automates the extraction, association, and validation of failure data d
 
 ## 🧩 Folder Structure
 
-├── app.py # Main Streamlit app
-├── launcher.py # Offline launcher
-├── Liste_projets.txt # List of available projects
-├── data/ # Working Excel files (project-wise)
-├── schema_history/ # Loaded schematics and JSON index
-├── Extractions/ # Last generated failure files
-├── streamlit_offline/ # .whl packages for offline setup
-├── wheels/ # Dependencies for connected setup
-└── README.md
+./assets/structure_dossier_projet_gma.png
 
 
 ---
