@@ -2,7 +2,8 @@
 *
 * @author : Brandon C. ETOCHA
 * @update : Cette version permet une gestion des catalogues de défaillance par projet.
-* @update : Cette version permet également de générer de faire une validation des modifications en deux temps, en affichant en orange les modifications non validées.
+* @update : Cette version permet également de faire une validation des modifications en deux temps, en affichant en orange les modifications non validées.
+* @deployment : Cette version a été déployée sur les serveurs locaux de l'usine de Renault Sandouville le mardi 29/07/2025
 * @date : 23/07/2025
 *
 """
@@ -378,37 +379,8 @@ def load_index(index_file: str):
 def save_index(index: dict, index_file: str):
     with open(index_file, "w", encoding="utf-8") as f:
         json.dump(index, f, ensure_ascii=False, indent=2)
-CONFIG_FILE = os.path.expanduser("~/.elem_maj_config.json")
+CONFIG_FILE = r"C:\Users\a048168\Documents\element-maj-app"
 
-def load_user_config():
-    if os.path.exists(CONFIG_FILE):
-        try: 
-            return json.load(open(CONFIG_FILE))
-        except: 
-            return {}
-    return {}
-
-def save_user_config(conf):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(conf, f)
-
-def init_config_sidebar():
-    conf = load_user_config()
-    if "base_dir" not in conf:
-        st.sidebar.subheader("⚙️ Configuration initiale")
-        path = st.sidebar.text_input(
-            "Chemin local du dossier element-maj-app",
-            placeholder=r"C:\Users\X\OneDrive – Renault\element‑maj‑app",
-            key="init_path"
-        )
-        if st.sidebar.button("✅ Valider le chemin"):
-            if os.path.isdir(path):
-                conf["base_dir"] = path
-                save_user_config(conf)
-                st.sidebar.success("Chemin enregistré !")
-                rerun()
-            else:
-                st.sidebar.error("Le dossier n'existe pas, vérifiez le chemin.")
 
 def auth_user():
     USERS = {"admin":"Admin","acteur":"Acteur"}
@@ -602,7 +574,7 @@ def manage_schema_history(base_dir: str) -> tuple:
             selected_filename = st.selectbox(
                 "📜 Schémathèques disponibles",
                 options=[v["filename"] for k, v in sorted_items],
-                format_func=lambda x: f"{x} ({index[x].get('project', '?')})",
+                format_func=lambda x: f"{x} ({index[x].get('project')})",
                 key="schema_selector"
             )
             
@@ -620,45 +592,14 @@ def manage_schema_history(base_dir: str) -> tuple:
                 
                 with col2:
                     if st.button("🗑️ Supprimer", key="del_btn"):
-                        if os.path.exists(selected_path):
-                            # 1. Suppression du fichier
-                            os.remove(selected_path)
-                            
-                            # 2. Suppression de l'index
-                            index.pop(selected_filename)
-                            save_index(index, INDEX_FILE)
-                            
-                            # 3. Suppression de la colonne UET si c'est la dernière schémathèque du projet
-                            if project_to_delete:
-                                # Vérifier s'il reste des schémathèques pour ce projet
-                                other_schemas_for_project = any(
-                                    v.get("project") == project_to_delete 
-                                    for v in index.values()
-                                )
+                            if os.path.exists(selected_path):
+                                # 1. Suppression du fichier
+                                os.remove(selected_path)
                                 
-                                if not other_schemas_for_project:
-                                    # Suppression de la colonne UET
-                                    corres_path = os.path.join(base_dir, "data/localisation_uet.xlsx")
-                                    if os.path.exists(corres_path):
-                                        df_corres = pd.read_excel(corres_path)
-                                        uet_col = f"UET {project_to_delete}"
-                                        
-                                        if uet_col in df_corres.columns:
-                                            df_corres.drop(columns=[uet_col], inplace=True)
-                                            df_corres.to_excel(corres_path, index=False)
-                                            st.success(f"Colonne {uet_col} supprimée")
-                                    
-                                    # Suppression du projet de la liste
-                                    try:
-                                        with open("Liste_projets.txt", "r", encoding="utf-8") as f:
-                                            projects = [p.strip() for p in f.read().split(",") if p.strip()]
-                                        
-                                        if project_to_delete in projects:
-                                            projects.remove(project_to_delete)
-                                            with open("Liste_projets.txt", "w", encoding="utf-8") as f:
-                                                f.write(",".join(projects))
-                                    except FileNotFoundError:
-                                        pass
+                                # 2. Suppression de l'index
+                                index.pop(selected_filename)
+                                save_index(index, INDEX_FILE)
+                                
                             
                             st.success("✅ Schémathèque et données associées supprimées")
                             st.rerun()
@@ -924,7 +865,7 @@ def show_sidebar_sections(data, project, found_localisations=None):
                             new_entries = [{
                                 "Code Loca": code,
                                 uet_projet: uet,
-                                "Famille": "",
+                                "Famille": project,
                                 "Sous-famille": "",
                                 "Libellé Long Loca": new_loca_items[code]
                             } for code, uet in uet_mapping.items()]
@@ -1096,10 +1037,12 @@ def show_block_explorer(block_codes, data, project, reference_titles=None):
 
     st.caption(f"Blocs {filter_type.lower()} : {len(filtered_titles)}")
 
+    print(block_codes)
+
     chosen = st.selectbox(
         "Choisir un bloc à visualiser :", 
         filtered_titles, 
-        format_func=lambda x: f"🟢 {x}" if bloc_status[x]=="green" else f"🟠 {x}" if bloc_status[x]=="orange" else f"🔴 {x} (Nouveau)",
+        format_func=lambda x: f"🟢 {x}" if bloc_status[x]=="green" else f"🟡 {x}" if bloc_status[x]=="orange" else f"🔴 {x} (Nouveau)",
         index=0 if filtered_titles else None,
         key="explore_blk_select"
     )
@@ -1310,7 +1253,7 @@ def show_element_manager(block_codes, clean2blocks, data, project):
                             (data["blocs_fonctions_path"]["Libellé élément Schémathèque"] == row['Libellé élément Schémathèque']))
                         ]
                         data["blocs_fonctions_path"].to_excel(
-                            os.path.join(data["base_dir"], "data/blocs_fonctions.xlsx"),
+                            os.path.join(data["base_dir"], f"data/blocs_fonctions_{project}.xlsx"),
                             index=False
                         )
                         st.success("Bloc détaché !")
@@ -1429,13 +1372,13 @@ def show_element_manager(block_codes, clean2blocks, data, project):
             missing_uet.append(loc)
 
 
-    # AFFICHAGE DES LOCALISATIONS (toujours visible)
-    st.markdown("#### 🗺 Localisations des blocs")
-    arbo_df = pd.DataFrame([(loc, schema_labels.get(loc, "")) for loc in sorted(locas_schema)],
-                        columns=["LOCALISATION", "LABEL"])
-    arbo_df["STATUT"] = arbo_df["LOCALISATION"].apply(
-        lambda x: "✅ Configuré" if x in configured_locs else "❌ UET manquante")
-    st.dataframe(arbo_df)
+    # # AFFICHAGE DES LOCALISATIONS (toujours visible)
+    # st.markdown("#### 🗺 Localisations des blocs")
+    # arbo_df = pd.DataFrame([(loc, schema_labels.get(loc, "")) for loc in sorted(locas_schema)],
+    #                     columns=["LOCALISATION", "LABEL"])
+    # arbo_df["STATUT"] = arbo_df["LOCALISATION"].apply(
+    #     lambda x: "✅ Configuré" if x in configured_locs else "❌ UET manquante")
+    # st.dataframe(arbo_df)
 
     # SECTION CONFIGURATION UET (seulement si des UET manquent)
     if missing_uet:
@@ -1515,7 +1458,7 @@ def show_element_manager(block_codes, clean2blocks, data, project):
                                     "Code Loca": loc,
                                     uet_projet: uet,
                                     "Libellé Long Loca": schema_labels.get(loc, "Inconnu"),
-                                    "Famille": "",
+                                    "Famille": project,
                                     "Sous-famille": ""
                                 }
                                 data["corres_path"] = pd.concat([
@@ -1603,7 +1546,7 @@ def show_element_manager(block_codes, clean2blocks, data, project):
                             "Code Loca": new_code,
                             "Libellé Long Loca": new_label,
                             uet_projet: new_uet,
-                            "Famille": "",
+                            "Famille": project,
                             "Sous-famille": ""
                         }
                         data["corres_path"] = pd.concat([data["corres_path"], pd.DataFrame([new_corres_row])], ignore_index=True)
@@ -1704,9 +1647,19 @@ def show_element_manager(block_codes, clean2blocks, data, project):
         st.markdown("#### 🗺 Localisations des blocs")
         arbo_df = pd.DataFrame([(loc, schema_labels.get(loc, "")) for loc in sorted(locas_schema)],
                             columns=["LOCALISATION", "LABEL"])
-        arbo_df["STATUT"] = arbo_df["LOCALISATION"].apply(
-            lambda x: "✅ Configuré" if str(x) in filtered_corres["Code Loca"].values else "❌ UET manquante")
+
+        def get_statut(loc):
+            loc_str = str(loc)
+            # Vérifie si la localisation est bien dans la table de correspondance
+            if loc_str in filtered_corres["Code Loca"].astype(str).values:
+                subset = current_arbo[current_arbo["LOCALISATION"].astype(str) == loc_str]
+                if not subset["UET imputée"].isna().all() and not subset["UET imputée"].astype(str).str.strip().eq("nan").all():
+                    return "✅ Configuré"
+            return "❌ UET manquante"
+
+        arbo_df["STATUT"] = arbo_df["LOCALISATION"].apply(get_statut)
         st.dataframe(arbo_df)
+
         
     else:  # Dernière extraction
         extractions_dir = os.path.join(data["base_dir"], "Extractions")
@@ -1726,12 +1679,56 @@ def show_element_manager(block_codes, clean2blocks, data, project):
         st.warning(f"Attention: {len(missing_uet)} localisations sans UET ne seront pas incluses")
 
     if view_mode == "Version actuelle":
-        st.dataframe((current_arbo))
+        current_arbo = current_arbo[pd.notna(current_arbo["UET imputée"]) & (current_arbo["UET imputée"].str.strip() != "nan")]
+        st.dataframe(current_arbo)
+        Check = 0
     else : 
-        st.dataframe(pd.read_excel(last_genereted))
+        try :
+            st.dataframe(pd.read_excel(last_genereted[last_genereted["UET imputée"] != "nan" and not pd.isna(last_genereted["UET imputée"])]))
+            Check = 0
+        except :
+            st.info("Aucun fichier trouvé.")
+            Check = 1
     
-    
-    
+    if Check == 0 :
+        # Ajout des boutons de generate_excel_structure ici
+        col1, col2 = st.columns(2)
+        with col1:
+            # Bouton pour valider et enregistrer dans Extractions
+            if st.button("💾 Valider les modifications", 
+                        help="Enregistre définitivement dans le dossier Extractions",
+                        type="primary"):
+                current_arbo.to_excel(output_path, index=False)
+                st.success(f"✅ Fichier enregistré dans : {output_path}")
+                st.rerun()
+        
+        with col2:
+            # Bouton de téléchargement (Seulement si toutes les UET sont renseignées)
+            output = BytesIO()
+            current_arbo.to_excel(output, index=False)
+            output.seek(0)
+            if missing_uet: 
+                st.download_button(
+                    label="⬇️ Télécharger le fichier Excel",
+                    data=output,
+                    file_name=f"{selected_elem}_Arborescence_GRET.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    disabled=True
+                )
+                st.info("Vous devez renseigner toutes les UET pour pouvoir télécharger ce fichier")
+            else :
+                st.download_button(
+                    label="⬇️ Télécharger le fichier Excel",
+                    data=output,
+                    file_name=f"{selected_elem}_Arborescence_GRET.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    disabled=False
+                )
+
+    st.markdown("---")
+
+
+
 def generate_excel_structure(selected_elem, df_loca, df_corres, df_incidents, template, base_dir, project):
     uet_projet = " ".join(["UET", project])
     template_df = template
@@ -1739,7 +1736,7 @@ def generate_excel_structure(selected_elem, df_loca, df_corres, df_incidents, te
     
     rows = []
     to_drop = []
-    exceptions = ["SK01", "RK01", "BK01", "MK01", "CK01", "TK01", "1791", "7935"]
+    exceptions = ["HK01", "SK01", "RK01", "BK01", "MK01", "CK01", "TK01", "1791", "7935"]
     incident_codes = df_incidents["Code Incident"].dropna().unique()
     
     # Construire les nouvelles lignes
@@ -1811,35 +1808,6 @@ def generate_excel_structure(selected_elem, df_loca, df_corres, df_incidents, te
     os.makedirs(extractions_dir, exist_ok=True)
     output_path = os.path.join(extractions_dir, f"{selected_elem}_Arborescence_GRET.xlsx")
     
-    # Export et affichage
-    output = BytesIO()
-    current_df.to_excel(output, index=False)
-    output.seek(0)
-    
-    # st.subheader("🧾 Aperçu du fichier actuel")
-    # st.success("✅ Arborescence mise à jour automatiquement")
-    # st.dataframe(current_df)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        # Bouton pour valider et enregistrer dans Extractions
-        if st.button("💾 Valider les modifications", 
-                    help="Enregistre définitivement dans le dossier Extractions",
-                    type="primary"):
-            current_df.to_excel(output_path, index=False)
-            st.success(f"✅ Fichier enregistré dans : {output_path}")
-            st.rerun()
-    
-    with col2:
-        # Bouton de téléchargement
-        st.download_button(
-            label="⬇️ Télécharger le fichier Excel",
-            data=output,
-            file_name=f"{selected_elem}_Arborescence_GRET.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-    st.markdown("---")
     return output_path
 
 
@@ -1850,7 +1818,7 @@ def compute_current_arbo(selected_elem, df_loca, df_corres, df_incidents, templa
     
     rows = []
     to_drop = []
-    exceptions = ["SK01", "RK01", "BK01", "MK01", "CK01", "TK01", "1791", "7935"]
+    exceptions = ["HK01", "SK01", "RK01", "BK01", "MK01", "CK01", "TK01", "1791", "7935"]
     incident_codes = df_incidents["Code Incident"].dropna().unique()
     
     # Construire les nouvelles lignes
@@ -1886,7 +1854,7 @@ def compute_current_arbo(selected_elem, df_loca, df_corres, df_incidents, templa
                         "UET imputée": uet,
                         "SECTEUR": "M",
                         "CHAINE": None,
-                        "TECHNIQUE": None,
+                        "TECHNIQUE": "M",
                         "CODE RETOUCHE": "RELE",
                         "TPS RETOUCHE": "0",
                         "EFFET CLIENT": "O",
@@ -2069,7 +2037,7 @@ def auto_link_blocks(block_codes, data, project, reference_titles=None):
         ], ignore_index=True)
         
         data["blocs_fonctions_path"].to_excel(
-            os.path.join(data["base_dir"], f"data/blocs_fonctions{project}.xlsx"),
+            os.path.join(data["base_dir"], f"data/blocs_fonctions_{project}.xlsx"),
             index=False
         )
         return len(new_links)
@@ -2083,19 +2051,11 @@ def auto_link_blocks(block_codes, data, project, reference_titles=None):
 # ==============================================================================
 def main():
     st.set_page_config(page_title="Mise à jour d'élément GRET", layout="wide")
-    st.title("📄 Mise à jour d'élément GRET")
+    st.title("📄 GRET MAJ AUTO")
     
-    # Initialisation config
-    init_config_sidebar()
     auth_user()
-    
-    # Chargement config
-    conf = load_user_config()
-    if "base_dir" not in conf:
-        st.warning("Veuillez configurer le chemin de base dans la sidebar")
-        st.stop()
-    
-    base_dir = conf["base_dir"]
+
+    base_dir = r"C:\Users\a048168\Documents\element-maj-app"
 
     schema_expansion = True
     
@@ -2191,6 +2151,13 @@ def main():
             
             # Affichage des sections de la sidebar
             show_sidebar_sections(data, project, found_localisations)
+    
+    st.sidebar.markdown("---")
+
+    st.sidebar.markdown(
+    "<p style='color:#888; font-size:12px; font-style:italic; text-align:center;'>@author : Brandon C. Etocha</p>",
+    unsafe_allow_html=True
+)
 
 if __name__ == "__main__":
     main()
