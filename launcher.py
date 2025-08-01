@@ -2,10 +2,9 @@
 *
 * @author : Brandon C. Etocha
 * @version : Cette version permet de sélectionner les dépendances et d'utiliser streamlit_off
-* @deployment : Cette version a été déployée et testée sur les serveurs locaux de l'usine de Renault Sandouville
+* @deployment : Cette version a été déployée et testée sur les serveurs locaux de l'usine de Renault Sandouville le 01/08/2025 - Version finale
 *
 """
-
 
 import os
 import sys
@@ -16,10 +15,11 @@ import glob
 from typing import List
 
 # Configuration
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = ('.')
 OFFLINE_WHL_DIR = os.path.join(BASE_DIR, "streamlit_offline")
 REQUIRED_PACKAGES = ["streamlit", "pandas", "openpyxl", "numpy", "requests"]
 os.chdir(BASE_DIR)
+print("Localisation actuelle :", os.getcwd())
 
 def is_package_installed(package: str) -> bool:
     try:
