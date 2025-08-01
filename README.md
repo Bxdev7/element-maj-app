@@ -41,7 +41,7 @@ streamlit run app.py
 
 
 python launcher.py
-
+```
 ---
 
 ## 🏗️ Tech Stack
