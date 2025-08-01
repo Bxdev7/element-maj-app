@@ -1,10 +1,10 @@
 """
 *
 * @author : Brandon C. ETOCHA
+* @version : Version finale déployée le 01/08/2025 sur le serveur local de l'usine.
 * @update : Cette version permet une gestion des catalogues de défaillance par projet.
 * @update : Cette version permet également de faire une validation des modifications en deux temps, en affichant en orange les modifications non validées.
-* @deployment : Cette version a été déployée sur les serveurs locaux de l'usine de Renault Sandouville le mardi 29/07/2025
-* @date : 23/07/2025
+* @date : 01/08/2025
 *
 """
 
@@ -13,6 +13,7 @@ import streamlit as st
 import pandas as pd
 import os
 from io import BytesIO
+import io
 import hashlib
 import json
 from datetime import datetime
@@ -662,10 +663,18 @@ def parse_schema(schema_text: str) -> tuple[list[dict], dict]:
     clean2blocks = {}
     
     for blk in blocks:
-        if len(blk.splitlines()[0].strip()) < 2:
-            title = blk.splitlines()[1].strip()
+        # print(blk.splitlines()) debug
+        
+        # Trouver la première ligne non vide
+        for line in blk.splitlines():
+            title = line.strip()
+            if title:
+                break
         else:
-            title = blk.splitlines()[0].strip()
+            title = "Titre inconnu"
+        
+        # print("\ntitle :", title) debug
+        
         rows = []
         
         for line in blk.splitlines()[1:]:
@@ -707,6 +716,8 @@ def parse_schema(schema_text: str) -> tuple[list[dict], dict]:
         
         if block_codes and block_codes[0]["title"].startswith("LIST"):
             block_codes = block_codes[1:]
+
+    # print(block_codes[:2])
 
     return block_codes, clean2blocks
 
@@ -1037,7 +1048,7 @@ def show_block_explorer(block_codes, data, project, reference_titles=None):
 
     st.caption(f"Blocs {filter_type.lower()} : {len(filtered_titles)}")
 
-    print(block_codes)
+    # print(block_codes)
 
     chosen = st.selectbox(
         "Choisir un bloc à visualiser :", 
@@ -1644,33 +1655,100 @@ def show_element_manager(block_codes, clean2blocks, data, project):
     st.markdown("### 📊 Données actuelles")
 
     if view_mode == "Version actuelle":
-        st.markdown("#### 🗺 Localisations des blocs")
+        st.markdown("#### Localisations associées à l'élément - Import Localisation GRET")  
+
+        # Construction du tableau initial
         arbo_df = pd.DataFrame([(loc, schema_labels.get(loc, "")) for loc in sorted(locas_schema)],
                             columns=["LOCALISATION", "LABEL"])
 
-        def get_statut(loc):
+        arbo_df.insert(0, "ELEMENT", selected_elem[:4])  # colonne ELEMENT
+        arbo_df["ÉTAT"] = ["Actif"] * len(arbo_df)  # valeur par défaut
+
+        # Ajout de la colonne "UET ?" (indicateur de renseignement)
+        def get_uet_status(loc):
             loc_str = str(loc)
-            # Vérifie si la localisation est bien dans la table de correspondance
-            if loc_str in filtered_corres["Code Loca"].astype(str).values:
-                subset = current_arbo[current_arbo["LOCALISATION"].astype(str) == loc_str]
-                if not subset["UET imputée"].isna().all() and not subset["UET imputée"].astype(str).str.strip().eq("nan").all():
-                    return "✅ Configuré"
-            return "❌ UET manquante"
+            row = data["corres_path"][data["corres_path"]["Code Loca"].astype(str) == loc_str]
+            if not row.empty and uet_projet in row.columns:
+                uet_val = row[uet_projet].values[0]
+                if pd.notna(uet_val) and str(uet_val).strip() and str(uet_val).strip().lower() != "nan":
+                    return "Renseigné"
+            return "Non renseigné"
 
-        arbo_df["STATUT"] = arbo_df["LOCALISATION"].apply(get_statut)
-        st.dataframe(arbo_df)
+        arbo_df["UET ?"] = arbo_df["LOCALISATION"].apply(get_uet_status)
 
-        
-    else:  # Dernière extraction
+        head_cols = st.columns([1.5, 2, 3, 2, 2])
+        with head_cols[0]:
+            st.text("ELEMENT")
+        with head_cols[1]:
+            st.text("LOCALISATION")
+        with head_cols[2]:
+            st.text("LIBELLE")
+        with head_cols[3]:
+            st.text("ETAT")
+        with head_cols[4]:
+            st.text("UET ?")
+
+        # Affichage + sélection de l'état ligne par ligne
+        for i in range(len(arbo_df)):
+            cols = st.columns([1.5, 2, 3, 2, 2])
+            with cols[0]:
+                st.markdown(f"**{arbo_df.at[i, 'ELEMENT']}**")
+            with cols[1]:
+                st.markdown(f"`{arbo_df.at[i, 'LOCALISATION']}`")
+            with cols[2]:
+                st.markdown(arbo_df.at[i, "LABEL"])
+            with cols[3]:
+                arbo_df.at[i, "ÉTAT"] = st.selectbox(
+                    "",
+                    options=["Actif", "Obsolète"],
+                    key=f"etat_{i}",
+                    index=0
+                )
+            with cols[4]:
+                st.markdown(f"🛈 {arbo_df.at[i, 'UET ?']}")
+
+        # Vérification des UET avant export
+        all_uet_ok = arbo_df["UET ?"].eq("Renseigné").all()
+
+
+        # Export Excel (sans colonne "UET ?")
+        export_df = arbo_df[["ELEMENT", "LOCALISATION", "LABEL", "ÉTAT"]]
+        output = BytesIO()
+        export_df.to_excel(output, index=False)
+        output.seek(0)
+
+        # Bouton de téléchargement conditionné aux UET renseignées
+        if not all_uet_ok:
+            st.download_button(
+                label="⬇️ Télécharger le fichier Excel",
+                data=output,
+                file_name=f"{selected_elem}_Import_Loca.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                disabled=True
+            )
+            st.info("❌ Vous devez renseigner toutes les UET pour pouvoir télécharger ce fichier.")
+        else:
+            st.download_button(
+                label="⬇️ Télécharger le fichier Excel",
+                data=output,
+                file_name=f"{selected_elem}_Import_Loca.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                disabled=False
+            )
+
+
+    else:
+        # Dernière extraction
         extractions_dir = os.path.join(data["base_dir"], "Extractions")
         output_path = os.path.join(extractions_dir, f"{selected_elem}_Arborescence_GRET.xlsx")
-        
+
         if os.path.exists(output_path):
             df_last = pd.read_excel(output_path)
             st.info(f"Dernière extraction enregistrée : {os.path.basename(output_path)}")
             st.dataframe(df_last)
         else:
-            st.warning("Aucune extraction précédente disponible pour cet élément")    
+            st.warning("Aucune extraction précédente disponible pour cet élément")
+
 
     # 10. Génération Excel
     st.markdown("---")
@@ -1772,7 +1850,7 @@ def generate_excel_structure(selected_elem, df_loca, df_corres, df_incidents, te
                         "UET imputée": uet,
                         "SECTEUR": "M",
                         "CHAINE": None,
-                        "TECHNIQUE": None,
+                        "TECHNIQUE": "S",
                         "CODE RETOUCHE": "RELE",
                         "TPS RETOUCHE": "0",
                         "EFFET CLIENT": "O",
@@ -1784,7 +1862,7 @@ def generate_excel_structure(selected_elem, df_loca, df_corres, df_incidents, te
     # Ajouter incidents exceptionnels automatiquement
     auto_incidents = [
         {"ELEMENT": selected_elem, "INCIDENT": code, "UET imputée": ("RET" if code != "DENR" else "DIV"), "LOCALISATION": "", 
-        "SECTEUR": "M", "CODE RETOUCHE": "RELE", "TPS RETOUCHE": "0", "EFFET CLIENT": "0", "REGROUPEMENT": "ELEC", "METIER": "ELECTRICIT"}
+        "SECTEUR": "M", "CODE RETOUCHE": "RELE", "TPS RETOUCHE": "0", "EFFET CLIENT": "O", "REGROUPEMENT": "ELEC", "METIER": "ELECTRICIT", "TECHNIQUE": "S"}
         for code in exceptions
     ]
 
@@ -1854,7 +1932,7 @@ def compute_current_arbo(selected_elem, df_loca, df_corres, df_incidents, templa
                         "UET imputée": uet,
                         "SECTEUR": "M",
                         "CHAINE": None,
-                        "TECHNIQUE": "M",
+                        "TECHNIQUE": "S",
                         "CODE RETOUCHE": "RELE",
                         "TPS RETOUCHE": "0",
                         "EFFET CLIENT": "O",
@@ -1866,7 +1944,7 @@ def compute_current_arbo(selected_elem, df_loca, df_corres, df_incidents, templa
     # Ajouter incidents exceptionnels automatiquement
     auto_incidents = [
         {"ELEMENT": selected_elem, "INCIDENT": code, "UET imputée": ("RET" if code != "DENR" else "DIV"), "LOCALISATION": "", 
-        "SECTEUR": "M", "CODE RETOUCHE": "RELE", "TPS RETOUCHE": "0", "EFFET CLIENT": "0", "REGROUPEMENT": "ELEC", "METIER": "ELECTRICIT"}
+        "SECTEUR": "M", "CODE RETOUCHE": "RELE", "TPS RETOUCHE": "0", "EFFET CLIENT": "O", "REGROUPEMENT": "ELEC", "METIER": "ELECTRICIT", "TECHNIQUE":"S"}
         for code in exceptions
     ]
 
@@ -2050,12 +2128,12 @@ def auto_link_blocks(block_codes, data, project, reference_titles=None):
 # 11. Application principale
 # ==============================================================================
 def main():
-    st.set_page_config(page_title="Mise à jour d'élément GRET", layout="wide")
+    st.set_page_config(page_title="GRET MAJ AUTO", layout="wide")
     st.title("📄 GRET MAJ AUTO")
     
     auth_user()
 
-    base_dir = r"C:\Users\a048168\Documents\element-maj-app"
+    base_dir = "."
 
     schema_expansion = True
     
