@@ -78,7 +78,7 @@ python launcher.py
 *Data & Industrial Process Intern – Renault Sandouville*
 
 📍 France  
-🔗 [LinkedIn](https://...) • [Portfolio](https://...)
+🔗 [LinkedIn](https://www.linkedin.com/in/brandon-christopher-etocha-2b50b122b/)) • [Portfolio]([https://...]www.canva.com/design/DAGuk4Vls58/DRx6fzhNZ0FaeQRw-OSySQ/view?utm_content=DAGuk4Vls58&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=hbb9d0a2b76))
 
 ---
 
@@ -88,4 +88,9 @@ Helped prepare defect management processes for FlexEVan launch
 🧠 Author
 Brandon-Christopher Etocha
 Data & Industrial Process Intern – Renault Sandouville
-📍 France | LinkedIn | Portfolio
+📍 France 
+
+Contact me ;)
+
+LinkedIn : 
+Portfolio : 
