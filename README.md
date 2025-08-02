@@ -78,7 +78,7 @@ python launcher.py
 *Data & Industrial Process Intern – Renault Sandouville*
 
 📍 France  
-🔗 [LinkedIn](https://www.linkedin.com/in/brandon-christopher-etocha-2b50b122b/)) • [Portfolio]([https://www.canva.com/design/DAGuk4Vls58/DRx6fzhNZ0FaeQRw-OSySQ/view?utm_content=DAGuk4Vls58&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=hbb9d0a2b76))
+🔗 [LinkedIn](https://www.linkedin.com/in/brandon-christopher-etocha-2b50b122b/) • [Portfolio]([https://www.canva.com/design/DAGuk4Vls58/DRx6fzhNZ0FaeQRw-OSySQ/view?utm_content=DAGuk4Vls58&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=hbb9d0a2b76)
 
 ---
 
